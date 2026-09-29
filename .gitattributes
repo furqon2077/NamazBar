@@ -1,0 +1,10 @@
+* text=auto
+*.cs   text eol=crlf
+*.bat  text eol=crlf
+*.manifest text eol=crlf
+*.ttf  binary
+*.png  binary
+*.sh     text eol=lf
+*.swift  text eol=lf
+*.yml    text eol=lf
+*.plist  text eol=lf

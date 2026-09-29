@@ -1,0 +1,102 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- NamazBar package: taskbar utility (NamazBar.exe) + Windows widget for the lock screen (NamazWidget.exe).
+     Identity Name stays "NamazBar.Widget" so installed copies update in place. Bump Version before build.bat /pack. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 desktop com rescap">
+
+  <Identity Name="NamazBar.Widget" Publisher="CN=NamazBar" Version="1.4.1.0" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>NamazBar</DisplayName>
+    <PublisherDisplayName>NamazBar</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+    <PackageDependency Name="Microsoft.WindowsAppRuntime.1.8" MinVersion="8000.0.0.0"
+      Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="ru" />
+  </Resources>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+  <Applications>
+    <!-- Taskbar utility: Start menu entry, starts with Windows, "NamazBar" in Win+R -->
+    <Application Id="NamazBar" Executable="NamazBar.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="NamazBar" Description="Namoz vaqti · Время намаза · Prayer times"
+        BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <desktop:Extension Category="windows.startupTask" Executable="NamazBar.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="NamazBarStartup" Enabled="true" DisplayName="NamazBar" />
+        </desktop:Extension>
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="NamazBar.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="NamazBar.exe" />
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+
+    <!-- Widget provider (COM server started by Windows) -->
+    <Application Id="Widget" Executable="NamazWidget.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements AppListEntry="none" DisplayName="NamazBar" Description="Namoz vaqti · Время намаза · Prayer times"
+        BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="NamazWidget.exe" Arguments="-RegisterProcessAsComServer" DisplayName="NamazBar Widget">
+              <com:Class Id="96405140-8bfb-428c-8e1e-954fff68ae8f" DisplayName="NamazBar Widget Provider" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+        <uap3:Extension Category="windows.appExtension">
+          <uap3:AppExtension Name="com.microsoft.windows.widgets" DisplayName="NamazBar" Id="NamazBarWidgets" PublicFolder="Public">
+            <uap3:Properties>
+              <WidgetProvider>
+                <ProviderIcons>
+                  <Icon Path="Assets\WidgetIcon.png" />
+                </ProviderIcons>
+                <Activation>
+                  <CreateInstance ClassId="96405140-8bfb-428c-8e1e-954fff68ae8f" />
+                </Activation>
+                <Definitions>
+                  <Definition Id="Namaz_Schedule" DisplayName="NamazBar"
+                    Description="Namoz vaqti · Время намаза · Prayer times" AllowMultiple="false" IsCustomizable="true"
+                    AdditionalInfoUri="https://islom.uz/taqvim">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                      <Capability><Size Name="large" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\WidgetIcon.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Screenshot.png" DisplayAltText="Namoz vaqti · Время намаза · Prayer times" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                </Definitions>
+              </WidgetProvider>
+            </uap3:Properties>
+          </uap3:AppExtension>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

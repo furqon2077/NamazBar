@@ -1,0 +1,11 @@
+﻿# build output
+pkg/
+dist/
+release/
+*.exe
+*.pdb
+# logs / local test files
+*.log
+NamazBarTest*
+Claude outputs/
+mac/out/

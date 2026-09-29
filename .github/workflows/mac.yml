@@ -1,0 +1,27 @@
+# Сборка NamazBar для macOS на сервере GitHub (Mac не нужен).
+# Результат — артефакт «NamazBar-mac»: установочный .dmg и картинки дизайна для проверки.
+name: macOS build
+
+on:
+  push:
+    paths: [ "mac/**", "fonts/**", ".github/workflows/mac.yml" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app and dmg
+        env:
+          VERSION: "1.0.${{ github.run_number }}"
+        run: |
+          chmod +x mac/build.sh
+          swift --version
+          mac/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NamazBar-mac
+          path: |
+            mac/out/*.dmg
+            mac/out/preview/
