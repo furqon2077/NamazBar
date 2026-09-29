@@ -37,7 +37,7 @@ enum StatusRenderer {
         var parts: [(String, NSFont, NSColor)] = []
         if !s.compact {
             if !s.prefix.isEmpty { parts.append((s.prefix, smallFont, dim)) }
-            let nameC = s.alertPulse > 0 ? Palette.mix(fg, Palette.jade, 0.5 + 0.5 * s.alertPulse) : fg
+            let nameC = s.alertPulse > 0 ? Palette.mix(fg, Palette.jade, CGFloat(0.5 + 0.5 * s.alertPulse)) : fg
             parts.append((s.name, nameFont, nameC))
             let detC = s.countdown ? (s.warnSoon ? (dark ? Palette.gold : Palette.goldDeep) : fg) : dim
             parts.append((s.detail, smallFont, detC))
@@ -70,7 +70,7 @@ enum StatusRenderer {
         let base: NSColor = s.countdown ? (s.warnSoon ? Palette.saffron : Palette.lapis) : (s.sunrise ? Palette.saffron : Palette.emerald)
         let hi: NSColor = s.countdown ? (s.warnSoon ? Palette.rgb(240, 178, 84) : Palette.rgb(84, 118, 184))
                                       : (s.sunrise ? Palette.rgb(240, 178, 84) : Palette.jade)
-        let p = s.alertPulse
+        let p = CGFloat(s.alertPulse)
         if p > 0 {   // ореол при наступлении намаза
             let halo = NSBezierPath(roundedRect: r.insetBy(dx: -1, dy: -1), xRadius: 6, yRadius: 6)
             hi.withAlphaComponent(0.25 + 0.45 * p).setFill(); halo.fill()

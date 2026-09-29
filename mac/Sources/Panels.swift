@@ -19,9 +19,9 @@ struct CardView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 Text(time).font(Font.ns(Palette.serif(17)))
-                    .foregroundColor(Color(Palette.rgb(250, 238, 204)))
+                    .foregroundColor(Color(nsColor: Palette.rgb(250, 238, 204)))
                     .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(LinearGradient(colors: [Color(Palette.mix(Palette.emerald, .white, 0.1)), Color(Palette.mix(Palette.emerald, .black, 0.3))],
+                    .background(LinearGradient(colors: [Color(nsColor: Palette.mix(Palette.emerald, .white, 0.1)), Color(nsColor: Palette.mix(Palette.emerald, .black, 0.3))],
                                                startPoint: .top, endPoint: .bottom))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.pGold, lineWidth: 1))

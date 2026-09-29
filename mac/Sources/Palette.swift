@@ -76,9 +76,8 @@ enum Palette {
 
 // Те же цвета для SwiftUI (карточка и экран перерыва)
 extension Color {
-    init(_ ns: NSColor) { self.init(nsColor: ns) }
-    static let pEmerald = Color(Palette.emerald), pEmeraldDark = Color(Palette.emeraldDark), pJade = Color(Palette.jade)
-    static let pLapisDark = Color(Palette.lapisDark), pGold = Color(Palette.gold), pIvory = Color(Palette.ivory)
+    static let pEmerald = Color(nsColor: Palette.emerald), pEmeraldDark = Color(nsColor: Palette.emeraldDark), pJade = Color(nsColor: Palette.jade)
+    static let pLapisDark = Color(nsColor: Palette.lapisDark), pGold = Color(nsColor: Palette.gold), pIvory = Color(nsColor: Palette.ivory)
 }
 
 /// Восьмиконечная звезда для SwiftUI

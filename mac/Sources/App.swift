@@ -358,6 +358,12 @@ enum Preview {
         let cardModel = CardModel(); cardModel.secondsLeft = 45
         savePNG(ImageRenderer(content: CardView(time: "18:18", title: String(format: Lang.T("title"), n[4]), breakMinutes: 10, model: cardModel)),
                 dir.appendingPathComponent("card.png"))
+        // сверка расчёта с Windows-версией: Ташкент, 26.09.2026 → 04:56 06:14 12:14 16:27 18:18 19:32
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "Asia/Tashkent")!
+        let day = cal.date(from: DateComponents(year: 2026, month: 9, day: 26))!
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; f.timeZone = cal.timeZone
+        let times = Astro.compute(day, lat: 41.300872, lng: 69.241813).map { f.string(from: $0) }.joined(separator: " ")
+        try? (times + "\n").write(to: dir.appendingPathComponent("times.txt"), atomically: true, encoding: .utf8)
         let bm = BreakModel()
         savePNG(ImageRenderer(content: BreakView(prayer: n[4], time: "18:18", until: Date().addingTimeInterval(575), model: bm).frame(width: 1440, height: 900)),
                 dir.appendingPathComponent("break.png"))
