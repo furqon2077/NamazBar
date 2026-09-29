@@ -30,8 +30,8 @@ echo NamazBar widget> pkg\Public\readme.txt
 set COMMON=/nologo /codepage:65001 /optimize+ /target:winexe /win32manifest:app.manifest ^
   /r:System.Windows.Forms.dll /r:System.Drawing.dll ^
   /r:"%NET%\System.Runtime.dll" /r:"%NET%\System.Runtime.WindowsRuntime.dll" /r:"%WINMD%" ^
-  /resource:fonts\GoogleSans-400.ttf,GS400.ttf /resource:fonts\GoogleSans-500.ttf,GS500.ttf ^
-  /resource:fonts\GoogleSans-700.ttf,GS700.ttf /resource:fonts\GoogleSansFlex-900.ttf,GSF900.ttf
+  /resource:..\fonts\GoogleSans-400.ttf,GS400.ttf /resource:..\fonts\GoogleSans-500.ttf,GS500.ttf ^
+  /resource:..\fonts\GoogleSans-700.ttf,GS700.ttf /resource:..\fonts\GoogleSansFlex-900.ttf,GSF900.ttf
 
 rem 1. widget provider; it also draws the package images and NamazBar.ico
 set ICON=

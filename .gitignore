@@ -1,11 +1,11 @@
 ﻿# build output
-pkg/
-dist/
-release/
+windows/pkg/
+windows/dist/
+windows/release/
+mac/out/
 *.exe
 *.pdb
 # logs / local test files
 *.log
 NamazBarTest*
 Claude outputs/
-mac/out/
