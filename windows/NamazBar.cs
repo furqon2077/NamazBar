@@ -378,7 +378,13 @@ namespace NamazBar
             { "tBefore",  new[] { "Jadvaldan oldin pauza", "Жадвалдан олдин пауза", "Пауза перед расписанием", "Pause before schedule" } },
             { "tAfter",   new[] { "Jadvaldan keyin pauza", "Жадвалдан кейин пауза", "Пауза после расписания", "Pause after schedule" } },
             { "tSpeed",   new[] { "Tezlik", "Тезлик", "Скорость", "Speed" } },
-            { "tShow",    new[] { "Tabloni ko'rsatish", "Таблони кўрсатиш", "Показывать табло", "Show ticker" } },
+            { "tShow",    new[] { "Jadvalni vaqti-vaqti bilan ko'rsatish", "Жадвални вақти-вақти билан кўрсатиш", "Показывать расписание периодически", "Show the schedule periodically" } },
+            { "wSize",    new[] { "Panel o'lchami", "Панель ўлчами", "Размер на панели", "Size on the taskbar" } },
+            { "wAuto",    new[] { "Avtomatik", "Автоматик", "Авто (по размеру экрана)", "Auto (by screen size)" } },
+            { "wFull",    new[] { "To'liq", "Тўлиқ", "Полный", "Full" } },
+            { "wMid",     new[] { "O'rtacha", "Ўртача", "Средний", "Medium" } },
+            { "wShort",   new[] { "Qisqa", "Қисқа", "Короткий", "Short" } },
+            { "tNow",     new[] { "Jadvalni hozir ko'rsatish", "Жадвални ҳозир кўрсатиш", "Показать расписание сейчас", "Show the schedule now" } },
             { "off",      new[] { "O'chirilgan", "Ўчирилган", "Выключено", "Off" } },
             { "slow",     new[] { "Sekin", "Секин", "Медленно", "Slow" } },
             { "normal",   new[] { "O'rtacha", "Ўртача", "Обычно", "Normal" } },
@@ -549,6 +555,82 @@ namespace NamazBar
 
     // ───────────────────────── Отрисовка виджета ─────────────────────────
     // Отдельный класс, чтобы вид можно было отрисовать и в картинку (превью).
+    // Расписание на сегодня одной строкой над виджетом: появляется по требованию, сама скрывается, не занимает место на панели задач
+    class TickerFlyout : Form
+    {
+        public static TickerFlyout Current;
+        readonly View v; readonly double before, after; readonly float speed; readonly Action closed;
+        readonly DateTime t0 = DateTime.Now;
+        float scrollMax, x; int pad;
+        System.Windows.Forms.Timer timer;
+
+        public static void ShowFor(View v, Rectangle widget, double before, double after, float speed, Action closed)
+        {
+            if (Current != null) return;
+            Current = new TickerFlyout(v, widget, before, after, speed, closed);
+            Current.Show();
+        }
+
+        TickerFlyout(View v, Rectangle widget, double before, double after, float speed, Action closed)
+        {
+            this.v = v; this.before = before; this.after = after; this.speed = speed; this.closed = closed;
+            AutoScaleMode = AutoScaleMode.None;
+            FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
+            DoubleBuffered = true;
+            Color bg = v.Light ? Color.FromArgb(252, 252, 250) : Color.FromArgb(32, 33, 36);
+            BackColor = bg;
+            float k = v.Dpi;
+            pad = (int)Math.Round(14 * k);
+            Rectangle wa = (widget.Width > 0 ? Screen.FromRectangle(widget) : Screen.PrimaryScreen).WorkingArea;
+            int maxW = Math.Max((int)(200 * k), wa.Width - 16);
+            int want = (int)Math.Ceiling(v.ScheduleW) + 2 * pad;
+            int W = Math.Min(Math.Min(want, (int)Math.Round(480 * k)), maxW), H = (int)Math.Round(34 * k);
+            scrollMax = Math.Max(0, want - W);
+            x = pad;
+            int left = widget.Width > 0 ? widget.Left : wa.Right - W - 12;
+            int bottom = widget.Width > 0 ? widget.Top - (int)Math.Round(8 * k) : wa.Bottom - 12;
+            Bounds = new Rectangle(Math.Max(wa.Left + 8, Math.Min(left, wa.Right - W - 8)), Math.Max(wa.Top + 8, bottom - H), W, H);
+            try { using (GraphicsPath p = Rounded(new Rectangle(0, 0, W, H), H / 2)) Region = new System.Drawing.Region(p); } catch { }
+            Click += delegate { Close(); };
+            FormClosed += delegate { if (timer != null) timer.Stop(); Current = null; if (this.closed != null) this.closed(); };
+            timer = new System.Windows.Forms.Timer { Interval = 30 };
+            timer.Tick += delegate
+            {
+                double t = (DateTime.Now - t0).TotalSeconds;
+                double scrollT = scrollMax > 0 && speed > 0 ? scrollMax / (speed * k) : 0;
+                double scroll = Math.Max(0, Math.Min(scrollT, t - before));
+                x = pad - (scrollT > 0 ? (float)(scroll / scrollT * scrollMax) : 0);
+                // в конце задержка не короче 2,5 с, чтобы последние слова успели прочитать
+                if (t >= before + scrollT + Math.Max(after, 2.5)) { Close(); return; }
+                Invalidate();
+            };
+            timer.Start();
+        }
+
+        protected override CreateParams CreateParams { get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x80; return cp; } }   // не забирает фокус, нет в Alt+Tab
+        protected override bool ShowWithoutActivation { get { return true; } }
+
+        static GraphicsPath Rounded(Rectangle r, int rad)
+        {
+            GraphicsPath p = new GraphicsPath(); int d = rad * 2;
+            p.AddArc(r.X, r.Y, d, d, 180, 90); p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); p.AddArc(r.X, r.Bottom - d, d, d, 90, 90); p.CloseFigure();
+            return p;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            using (Pen pen = new Pen(Color.FromArgb(v.WarnSoon ? 255 : 210, v.Orange), 1.2f))
+            using (GraphicsPath p = Rounded(new Rectangle(0, 0, Width - 1, Height - 1), Height / 2)) g.DrawPath(pen, p);
+            RectangleF box = new RectangleF(0, 0, Width, Height);
+            g.SetClip(new RectangleF(pad * 0.6f, 2, Width - pad * 1.2f, Height - 4));
+            float baseY = (Height + v.ScheduleHeight(g)) / 2f;
+            v.DrawSchedule(g, box, x, baseY);
+        }
+    }
+
     class View
     {
         public Font TimeFont, NameFont, SubFont, ChipFont, IconFont;
@@ -569,7 +651,8 @@ namespace NamazBar
         // 0 всё; 1 без табло; 2 без «Next»/«прошло»; 3 без названия; 4 без кнопки ⟳; 5 узкая плашка; 6 — скрыт
         public const int MaxCompact = 6;
         public int Compact;
-        bool TickerOn { get { return ShowTicker && Compact < 1; } }
+        // Табло больше не растягивает плашку на панели задач: расписание показывается всплывающей строкой над виджетом (TickerFlyout)
+        bool TickerOn { get { return false; } }
         bool ExtraOn { get { return Compact < 2; } }
         bool NameOn { get { return Compact < 3; } }
         bool SyncOn { get { return Compact < 4; } }
@@ -701,6 +784,39 @@ namespace NamazBar
 
         // в режиме отсчёта «after 1 h 27 min» — главная информация, поэтому крупнее
         Font ElapsedFont { get { return Countdown ? ChipFont : SubFont; } }
+
+        public Color ScheduleText { get { return WarnSoon ? (Light ? Color.FromArgb(150, 70, 0) : Color.FromArgb(255, 214, 170)) : (Light ? Color.FromArgb(60, 60, 60) : Color.FromArgb(232, 235, 238)); } }
+        public float ScheduleHeight(Graphics g) { return Cap(g, ChipFont) + Desc(g, ChipFont); }
+
+        // Расписание на сегодня одной строкой: «Сегодня  Бомдод 05:12 · Қуёш 06:34 · …» (рисует всплывающая строка над виджетом)
+        public void DrawSchedule(Graphics g, RectangleF box, float x, float baseY)
+        {
+            StringFormat sf = StringFormat.GenericTypographic;
+            Color tc = ScheduleText;
+        Font tf = NameFontSmall(g);
+        using (SolidBrush dim = new SolidBrush(FgDim))
+        using (SolidBrush norm = new SolidBrush(tc))
+        using (SolidBrush cur = new SolidBrush(Light ? Green : GreenHi))
+        using (SolidBrush nxt = new SolidBrush(Orange))
+        {
+            g.DrawString(TodayLabel, ChipFont, dim, x, baseY - Asc(g, ChipFont), sf);
+            x += g.MeasureString(TodayLabel, ChipFont, 1000, sf).Width + S(8);
+            for (int k = 0; k < SchedNames.Length; k++)
+            {
+                SolidBrush b = k == SchedCur ? cur : (k == SchedNext ? nxt : (SchedCur >= 0 && k < SchedCur && SchedNext != 0 ? dim : norm));
+                string nm = SchedNames[k];
+                g.DrawString(nm, ChipFont, b, x, baseY - Asc(g, ChipFont), sf);
+                x += g.MeasureString(nm, ChipFont, 1000, sf).Width + S(4);
+                g.DrawString(SchedTimes[k], tf, b, x, baseY - Asc(g, tf), sf);
+                x += g.MeasureString(SchedTimes[k], tf, 1000, sf).Width;
+                if (k < SchedNames.Length - 1)
+                {
+                    g.DrawString("·", ChipFont, dim, x + S(9), baseY - Asc(g, ChipFont), sf);
+                    x += SepW(g);
+                }
+            }
+        }
+        }
 
         float TickerH(Graphics g) { return Cap(g, ChipFont) + Desc(g, ChipFont) + 2 * S(4.5f); }
 
@@ -864,30 +980,7 @@ namespace NamazBar
                 }
                 else
                 {
-                    float x = box.X + ChipPadX + TickerX;
-                    Font tf = NameFontSmall(g);
-                    using (SolidBrush dim = new SolidBrush(FgDim))
-                    using (SolidBrush norm = new SolidBrush(tc))
-                    using (SolidBrush cur = new SolidBrush(Light ? Green : GreenHi))
-                    using (SolidBrush nxt = new SolidBrush(Orange))
-                    {
-                        g.DrawString(TodayLabel, ChipFont, dim, x, baseY - Asc(g, ChipFont), sf);
-                        x += g.MeasureString(TodayLabel, ChipFont, 1000, sf).Width + S(8);
-                        for (int k = 0; k < SchedNames.Length; k++)
-                        {
-                            SolidBrush b = k == SchedCur ? cur : (k == SchedNext ? nxt : (SchedCur >= 0 && k < SchedCur && SchedNext != 0 ? dim : norm));
-                            string nm = SchedNames[k];
-                            g.DrawString(nm, ChipFont, b, x, baseY - Asc(g, ChipFont), sf);
-                            x += g.MeasureString(nm, ChipFont, 1000, sf).Width + S(4);
-                            g.DrawString(SchedTimes[k], tf, b, x, baseY - Asc(g, tf), sf);
-                            x += g.MeasureString(SchedTimes[k], tf, 1000, sf).Width;
-                            if (k < SchedNames.Length - 1)
-                            {
-                                g.DrawString("·", ChipFont, dim, x + S(9), baseY - Asc(g, ChipFont), sf);
-                                x += SepW(g);
-                            }
-                        }
-                    }
+                    DrawSchedule(g, box, box.X + ChipPadX + TickerX, baseY);
                 }
                 g.Restore(st);
             }
@@ -1691,6 +1784,21 @@ namespace NamazBar
             catch { return fallback; }
         }
 
+        // Умная длина плашки: чем меньше экран, тем короче вариант (0 — полный, 2 — без «осталось», 3 — без названия).
+        // Дальше PlaceOnTaskbar всё равно упрощает плашку, если ей не хватает места до «Пуска» и значков.
+        // Выбор вручную: меню «Размер на панели» (авто / полный / средний / короткий).
+        int MinLevel(int barWidth)
+        {
+            switch (Store.Get("widgetSize", "auto"))
+            {
+                case "full": return 0;
+                case "mid": return 2;
+                case "short": return 3;
+            }
+            double dip = barWidth / (double)Math.Max(0.5f, view.Dpi);   // ширина экрана в «логических» пикселях, не зависит от масштаба Windows
+            return dip < 1100 ? 3 : dip < 1450 ? 2 : 0;
+        }
+
         void PlaceOnTaskbar()
         {
             RECT r; IntPtr tb = FindWindow("Shell_TrayWnd", null);
@@ -1709,7 +1817,7 @@ namespace NamazBar
             int x = bar.Left + offsetX, level;
             using (Graphics g = CreateGraphics())
             {
-                for (level = 0; level < View.MaxCompact; level++)
+                for (level = MinLevel(bar.Width); level < View.MaxCompact; level++)
                 {
                     view.Compact = level;
                     sz = view.Measure(g, bar.Height - 2 * margin);
@@ -1870,7 +1978,7 @@ namespace NamazBar
                 view.Sunrise = false;
             }
             else view.Prefix = "";
-            view.ShowTicker = TickerEnabled || tickerPhase != 0;   // табло не зависит от режима — только от переключателя
+            view.ShowTicker = false;   // расписание показывается над виджетом, плашка не растёт
 
             if (pendingPrayer.Value != DateTime.MinValue || startupPrayer.Value != DateTime.MinValue)
             {
@@ -1956,107 +2064,41 @@ namespace NamazBar
         {
             double v; return double.TryParse(Store.Get(key, ""), NumberStyles.Float, CultureInfo.InvariantCulture, out v) ? v : def;
         }
-        // Табло включается и выключается вручную (меню «Бегущая строка» → «Показывать табло»), без привязки к режиму отсчёта
-        static bool TickerEnabled { get { return Store.Get("tickerOn", "1") == "1"; } }
-        double TickerPauseSec { get { return Cfg("tickerEvery", 10); } }   // 0 = только по кнопке ⟳
-        double GapBeforeSec { get { return Cfg("tickerBefore", 1); } }
-        double GapAfterSec { get { return Cfg("tickerAfter", 3); } }
-        float TickerSpeed { get { return (float)Cfg("tickerSpeed", 55); } }
-        // 0 статика, 1 уход вниз, 4 пауза, 2 прокрутка, 5 пауза, 3 появление сверху
-        int tickerPhase;
-        DateTime tickerStaticSince = DateTime.Now, tickerPhaseStart;
-        float tickerStartX;
+        // Расписание — всплывающая строка над виджетом (TickerFlyout): по клику на плашку, по кнопке ⟳ или периодически (если включено)
+        static bool TickerEnabled { get { return Store.Get("tickerOn", "0") == "1"; } }
+        double TickerPauseSec { get { return Cfg("tickerEvery", 10); } }   // 0 = только по требованию
+        double GapBeforeSec { get { return Cfg("tickerBefore", 0); } }
+        double GapAfterSec { get { return Cfg("tickerAfter", 0); } }
+        float TickerSpeed { get { return (float)Cfg("tickerSpeed", 80); } }
+        int tickerPhase;   // всегда 0: прокрутка теперь живёт во всплывающей строке, а не в плашке
+        DateTime tickerStaticSince = DateTime.Now;
 
         void TickerTick()
         {
-            if (tickerPhase != 0 || dragging || TickerPauseSec <= 0 || !TickerEnabled) return;
+            if (TickerFlyout.Current != null || dragging || TickerPauseSec <= 0 || !TickerEnabled) return;
             if ((DateTime.Now - tickerStaticSince).TotalSeconds < TickerPauseSec) return;
             StartTicker();
         }
 
-        void StartTicker()
-        {
-            if (tickerPhase != 0) return;
-            tickerPhase = 1;
-            tickerPhaseStart = DateTime.Now;
-            if (!TickerEnabled)
-            {
-                // табло выключено — по кнопке ⟳ показываем его только на время прокрутки
-                view.ShowTicker = true; view.StaticAlpha = 0f;
-                tickerPhase = 4;
-                lastKey = null; PlaceOnTaskbar();
-            }
-            anim.Interval = 40;
-            anim.Start();
-        }
+        void StartTicker() { ShowSchedule(false); }
 
-        static float EaseOut(double t) { t = Math.Max(0, Math.Min(1, t)); return (float)(1 - Math.Pow(1 - t, 3)); }
-        static float EaseIn(double t) { t = Math.Max(0, Math.Min(1, t)); return (float)(t * t * t); }
+        void ShowSchedule(bool toggle)
+        {
+            if (TickerFlyout.Current != null) { if (toggle) TickerFlyout.Current.Close(); return; }
+            TickerFlyout.ShowFor(view, WidgetScreenRect(), GapBeforeSec, GapAfterSec, TickerSpeed, delegate { tickerStaticSince = DateTime.Now; });
+        }
 
         void OnAnim()
         {
             DateTime now = DateTime.Now;
-            double pt = (now - tickerPhaseStart).TotalSeconds;
-            float boxH = view.TickerRect.Height;
-            if (tickerPhase == 1)
-            {
-                view.StaticDY = EaseIn(pt / SlideSec) * boxH;
-                view.StaticAlpha = 1f - (float)(pt / SlideSec);
-                if (pt >= SlideSec) { tickerPhase = 4; tickerPhaseStart = now; view.StaticAlpha = 0f; pt = 0; }
-            }
-            if (tickerPhase == 4)
-            {
-                if (pt >= (!TickerEnabled ? 0.3 : GapBeforeSec))
-                {
-                    tickerPhase = 2; tickerPhaseStart = now;
-                    tickerStartX = view.TickerRect.Width;      // расписание въезжает справа
-                    view.TickerX = tickerStartX;
-                    view.TickerScroll = true;
-                }
-            }
-            else if (tickerPhase == 2)
-            {
-                float speed = TickerSpeed * view.Dpi;           // px в секунду
-                view.TickerX = tickerStartX - (float)(pt * speed);
-                if (view.TickerX < -view.ScheduleW - 4)
-                {
-                    tickerPhase = 5; tickerPhaseStart = now; pt = 0;
-                    view.TickerScroll = false;
-                    view.StaticDY = -boxH; view.StaticAlpha = 0f;
-                }
-            }
-            if (tickerPhase == 5)
-            {
-                if (pt >= GapAfterSec)
-                {
-                    if (!TickerEnabled)
-                    {
-                        tickerPhase = 0; tickerStaticSince = now;
-                        view.StaticDY = 0; view.StaticAlpha = 1f;
-                        view.ShowTicker = false; lastKey = null; PlaceOnTaskbar();
-                    }
-                    else { tickerPhase = 3; tickerPhaseStart = now; pt = 0; }
-                }
-            }
-            else if (tickerPhase == 3)
-            {
-                view.StaticDY = -(1f - EaseOut(pt / SlideSec)) * boxH;
-                view.StaticAlpha = (float)Math.Min(1, pt / SlideSec);
-                if (pt >= SlideSec)
-                {
-                    tickerPhase = 0; tickerStaticSince = now;
-                    view.StaticDY = 0; view.StaticAlpha = 1f;
-                }
-            }
             if (view.Alert && now >= alertUntil) { view.Alert = false; }
             view.AlertT = (now - alertStart).TotalSeconds;
             view.SandT = (now - DateTime.Today).TotalSeconds;
             if (syncing) view.SyncAngle = (view.SyncAngle + 18) % 360;
             // первая минута — 25 кадров/с, дальше плавное дыхание 12 кадров/с (экономно)
-            bool gap = (tickerPhase == 4 || tickerPhase == 5) && !view.Alert && !syncing;
-            anim.Interval = gap ? 100 : ((view.Alert && view.AlertT > 60 && !syncing && tickerPhase == 0) ? 80 : 40);
-            if (view.Hourglass && !view.Alert && !syncing && tickerPhase == 0) anim.Interval = 70;   // песок — 14 кадров/с
-            if (!view.Alert && !syncing && tickerPhase == 0 && !view.Hourglass) anim.Stop();
+            anim.Interval = (view.Alert && view.AlertT > 60 && !syncing) ? 80 : 40;
+            if (view.Hourglass && !view.Alert && !syncing) anim.Interval = 70;   // песок — 14 кадров/с
+            if (!view.Alert && !syncing && !view.Hourglass) anim.Stop();
             if (Visible) Redraw();
         }
 
@@ -2245,6 +2287,7 @@ namespace NamazBar
                 }
                 else if (view.SyncRect.Contains(e.Location)) { StartSync(); StartTicker(); }
                 else if (view.Alert) StopAlert();          // клик гасит подсветку
+                else if (!dragMoved) ShowSchedule(true);   // обычный клик по плашке — показать/спрятать расписание
                 dragging = false;
             }
             else if (e.Button == MouseButtons.Right) { RebuildCityMenu(); ChatMenu.Rebuild(chatMenu); menu.Show(Cursor.Position); }
@@ -2330,9 +2373,29 @@ namespace NamazBar
                 skins.DropDownItems.Add(MenuUi.Swatch(def, def.Id == Skin.CurId, delegate { SetSkin(def.Id); }));
             }
             look.DropDownItems.Add(skins);
+            ToolStripMenuItem wsz = MenuUi.Sub(Lang.T("wSize"), null);
+            string[][] wopt = { new[] { "auto", "wAuto" }, new[] { "full", "wFull" }, new[] { "mid", "wMid" }, new[] { "short", "wShort" } };
+            foreach (string[] o in wopt)
+            {
+                string key = o[0];
+                ToolStripMenuItem wi = MenuUi.Sub(Lang.T(o[1]), null);
+                wi.Checked = Store.Get("widgetSize", "auto") == key;
+                wi.Click += delegate
+                {
+                    Store.Settings["widgetSize"] = key; Store.Save();
+                    foreach (ToolStripItem it in wsz.DropDownItems) { ToolStripMenuItem mi = it as ToolStripMenuItem; if (mi != null) mi.Checked = mi == wi; }
+                    lastKey = null; Recalc();
+                };
+                wsz.DropDownItems.Add(wi);
+            }
+            look.DropDownItems.Add(wsz);
             ToolStripMenuItem tick = MenuUi.Sub(Lang.T("ticker"), null);
             ToolStripMenuItem tickOn = MenuUi.Sub(Lang.T("tShow"), null);
             tickOn.Checked = TickerEnabled;
+            ToolStripMenuItem tickNow = MenuUi.Sub(Lang.T("tNow"), null);
+            tickNow.Click += delegate { ShowSchedule(false); };
+            tick.DropDownItems.Add(tickNow);
+            tick.DropDownItems.Add(new ToolStripSeparator());
             tickOn.Click += delegate
             {
                 tickOn.Checked = !tickOn.Checked;
@@ -2344,11 +2407,11 @@ namespace NamazBar
             tick.DropDownItems.Add(new ToolStripSeparator());
             AddChoice(tick, Lang.T("tEvery"), "tickerEvery", 10, new double[] { 10, 20, 30, 60, 120, 0 },
                 new string[] { "10" + sec, "20" + sec, "30" + sec, "1" + mn, "2" + mn, Lang.T("off") });
-            AddChoice(tick, Lang.T("tBefore"), "tickerBefore", 1, new double[] { 0, 0.5, 1, 2, 3 },
+            AddChoice(tick, Lang.T("tBefore"), "tickerBefore", 0, new double[] { 0, 0.5, 1, 2, 3 },
                 new string[] { "0" + sec, "0.5" + sec, "1" + sec, "2" + sec, "3" + sec });
-            AddChoice(tick, Lang.T("tAfter"), "tickerAfter", 3, new double[] { 0, 1, 2, 3, 5 },
+            AddChoice(tick, Lang.T("tAfter"), "tickerAfter", 0, new double[] { 0, 1, 2, 3, 5 },
                 new string[] { "0" + sec, "1" + sec, "2" + sec, "3" + sec, "5" + sec });
-            AddChoice(tick, Lang.T("tSpeed"), "tickerSpeed", 55, new double[] { 35, 55, 80 },
+            AddChoice(tick, Lang.T("tSpeed"), "tickerSpeed", 80, new double[] { 35, 55, 80 },
                 new string[] { Lang.T("slow"), Lang.T("normal"), Lang.T("fast") });
             look.DropDownItems.Add(tick);
             look.DropDownItems.Add(new ToolStripSeparator());
