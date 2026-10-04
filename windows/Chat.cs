@@ -78,6 +78,7 @@ namespace NamazBar
     {
         public event Action<Dictionary<string, object>> Received;
         public event Action<bool> Connection;
+        public event Action<string> Failed;   // понятная причина неудачного подключения
         readonly string url;
         readonly object qLock = new object();
         BlockingCollection<string> outq;
@@ -124,7 +125,14 @@ namespace NamazBar
                     Action<bool> cb = Connection; if (cb != null) cb(true);
                     ReceiveLoop(ws, ct);
                 }
-                catch (Exception ex) { if (!stopped) Store.Log("chat link: " + ex.GetBaseException().Message); }
+                catch (Exception ex)
+                {
+                    if (!stopped)
+                    {
+                        Store.Log("chat link: " + ex.GetBaseException().Message);
+                        Action<string> f = Failed; if (f != null) f(Friendly(ex.GetBaseException().Message));
+                    }
+                }
                 finally
                 {
                     lock (qLock) { if (outq != null) { try { outq.CompleteAdding(); } catch { } outq = null; } }
@@ -138,6 +146,24 @@ namespace NamazBar
                 for (int waited = 0; waited < delay && !stopped; waited += 250) Thread.Sleep(250);
                 delay = Math.Min(delay * 2, 30000);
             }
+        }
+
+        // Причина, понятная пользователю (что проверить), вместо «Подключение…» без конца
+        public static string Friendly(string m)
+        {
+            m = m ?? "";
+            if (m.Contains("404")) return "nothing answers at this address (404) - copy the exact URL from your hosting dashboard";
+            if (m.Contains("400")) return "the server answered but not at this path (400) - the address must end with /ws";
+            if (m.Contains("401") || m.Contains("403")) return "access denied (" + (m.Contains("401") ? "401" : "403") + ")";
+            if (m.Contains("502") || m.Contains("503") || m.Contains("504")) return "the server is starting up (free hosting sleeps) - retrying";
+            if (m.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0 || m.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "no answer yet - free hosting can need up to a minute to wake up, retrying";
+            if (m.IndexOf("name could not be resolved", StringComparison.OrdinalIgnoreCase) >= 0 || m.IndexOf("remote name", StringComparison.OrdinalIgnoreCase) >= 0
+                || m.IndexOf("no such host", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "address not found (DNS) - check the server address";
+            if (m.IndexOf("SSL", StringComparison.OrdinalIgnoreCase) >= 0 || m.IndexOf("TLS", StringComparison.OrdinalIgnoreCase) >= 0 || m.IndexOf("certificate", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "secure connection failed (TLS) - " + m;
+            return m.Length > 120 ? m.Substring(0, 120) + "..." : m;
         }
 
         static class Task0
@@ -193,6 +219,7 @@ namespace NamazBar
 
         public static readonly List<ChatGroup> Groups = new List<ChatGroup>();
         public static bool Connected;
+        public static string LastError;   // почему не получается подключиться (null — всё в порядке)
         public static string UserId, Nick, Avatar, Server;
         public static ChatGroup Active;                     // открытая в окне группа (для счётчика непрочитанных)
         static string lastLine; static DateTime lastLineAt;
@@ -240,7 +267,8 @@ namespace NamazBar
             if (!Uri.TryCreate(Server, UriKind.Absolute, out u) || (u.Scheme != "ws" && u.Scheme != "wss")) { Notice2("Server URL must start with ws:// or wss://", true); return; }
             link = new RelayLink(Server);
             RelayLink mine = link;
-            link.Connection += delegate(bool up) { Post(delegate { if (link != mine) return; Connected = up; if (up) Hello(); Fire(); }); };
+            link.Connection += delegate(bool up) { Post(delegate { if (link != mine) return; Connected = up; if (up) { LastError = null; Hello(); } Fire(); }); };
+            link.Failed += delegate(string why) { Post(delegate { if (link != mine) return; LastError = why; Fire(); }); };
             link.Received += delegate(Dictionary<string, object> d) { Post(delegate { if (link == mine) Handle(d); }); };
             link.Start();
         }
@@ -248,7 +276,7 @@ namespace NamazBar
         static void Disconnect()
         {
             if (link != null) { link.Stop(); link = null; }
-            Connected = false;
+            Connected = false; LastError = null;
         }
 
         public static void Stop() { Disconnect(); }
@@ -994,7 +1022,11 @@ namespace NamazBar
             if (IsDisposed) return;
             if (!Chat.Configured) { SetStatus(ChatT.T("setup"), true); return; }
             if ((DateTime.Now - noticeAt).TotalSeconds > 8)
-                SetStatus(Chat.Connected ? ChatT.T("connected") : ChatT.T("connecting"), false);
+            {
+                if (Chat.Connected) SetStatus(ChatT.T("connected"), false);
+                else if (!string.IsNullOrEmpty(Chat.LastError)) SetStatus(ChatT.T("connecting") + " " + Chat.LastError, true);
+                else SetStatus(ChatT.T("connecting"), false);
+            }
         }
         void SetStatus(string text, bool error)
         {
