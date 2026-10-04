@@ -463,7 +463,7 @@ namespace NamazBar
             Chat.Incoming += delegate(ChatGroup g, ChatMsg m)
             {
                 Chat.RememberLine(g, m);
-                bool watching = ChatForm.IsOpen && Form.ActiveForm is ChatForm && Chat.Active == g;
+                bool watching = (ChatForm.IsOpen && Form.ActiveForm is ChatForm && Chat.Active == g) || ChatDock.IsWatching(g);
                 if (!watching) ChatToast.Message(g, m);
                 Beep();
             };
@@ -515,6 +515,12 @@ namespace NamazBar
             { "copied",   new[] { "Kod nusxalandi", "Код нусхаланди", "Код скопирован", "Code copied" } },
             { "today",    new[] { "Bugun", "Бугун", "Сегодня", "Today" } },
             { "yesterday", new[] { "Kecha", "Кеча", "Вчера", "Yesterday" } },
+            { "openChat", new[] { "Chatni ochish", "Чатни очиш", "Открыть чат", "Open chat" } },
+            { "chatTab",  new[] { "Chat", "Чат", "Чат", "Chat" } },
+            { "members",  new[] { "A'zolar", "Аъзолар", "Участники", "Members" } },
+            { "offlineN", new[] { "{0} oflayn", "{0} офлайн", "{0} не в сети", "{0} offline" } },
+            { "stOn",     new[] { "onlayn", "онлайн", "в сети", "online" } },
+            { "stOff",    new[] { "oflayn", "офлайн", "не в сети", "offline" } },
             { "send",     new[] { "Xabar yuborish", "Хабар юбориш", "Отправить сообщение", "Send a message" } },
             { "openWin",  new[] { "Chat oynasini ochish…", "Чат ойнасини очиш…", "Открыть окно чата…", "Open chat window…" } },
             { "ok",       new[] { "OK", "OK", "OK", "OK" } },
@@ -668,7 +674,7 @@ namespace NamazBar
                 d.Click += delegate { Chat.Decide(RequestId, false); Close(); };
                 Controls.Add(a); Controls.Add(d);
             }
-            else Click += delegate { ChatForm.ShowSingle(); Close(); };
+            else Click += delegate { ChatDock.ShowDock(); Close(); };
             if (seconds > 0) { life.Interval = seconds * 1000; life.Tick += delegate { Close(); }; life.Start(); }
         }
 
@@ -807,7 +813,7 @@ namespace NamazBar
     {
         static float Dpi() { using (Bitmap b = new Bitmap(1, 1)) using (Graphics g = Graphics.FromImage(b)) return g.DpiX / 96f; }
 
-        public static void ShowWindow() { ChatForm.ShowSingle(); }
+        public static void ShowWindow() { ChatDock.ShowDock(); }
 
         // Перестраивает выпадающее меню «Чат»: группы с участниками (онлайн сверху, офлайн снизу), быстрые фразы, управление
         public static void Rebuild(ToolStripMenuItem root)
@@ -867,7 +873,8 @@ namespace NamazBar
                 }));
                 root.DropDownItems.Add(new ToolStripSeparator());
             }
-            root.DropDownItems.Add(MenuUi.Item(ChatT.T("openWin"), null, ShowWindow));
+            root.DropDownItems.Add(MenuUi.Item(ChatT.T("openChat"), null, ShowWindow));
+            root.DropDownItems.Add(MenuUi.Item(ChatT.T("openWin"), null, delegate { ChatForm.ShowSingle(); }));
         }
     }
 
@@ -1097,7 +1104,15 @@ namespace NamazBar
 
     class BufListBox : ListBox
     {
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int SetWindowTheme(IntPtr hwnd, string app, string idlist);
         public BufListBox() { SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true); }
+        // тёмная полоса прокрутки (Windows 10/11); на старых системах просто остаётся обычной
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try { SetWindowTheme(Handle, "DarkMode_Explorer", null); } catch { }
+        }
         protected override void OnPaintBackground(PaintEventArgs e) { using (SolidBrush b = new SolidBrush(BackColor)) e.Graphics.FillRectangle(b, e.ClipRectangle); }
     }
 
@@ -1185,6 +1200,416 @@ namespace NamazBar
         }
     }
 
+    // ───────────────────────── Список сообщений (общий для окна и док-панели) ─────────────────────────
+    class MessageView : BufListBox
+    {
+        public ChatGroup Group;
+        string shownCode; int shownCount = -1;
+
+        public MessageView()
+        {
+            DrawMode = DrawMode.OwnerDrawVariable; BorderStyle = BorderStyle.None; BackColor = Ui.Bg; IntegralHeight = false;
+        }
+
+        public void SetGroup(ChatGroup g)
+        {
+            Group = g;
+            if (g == null) { Items.Clear(); shownCode = null; shownCount = -1; return; }
+            if (shownCode != g.Code || shownCount != g.Messages.Count) Fill(true);
+        }
+
+        protected override void OnResize(EventArgs e) { base.OnResize(e); Fill(false); }
+
+        static string DayLabel(DateTime d)
+        {
+            if (d.Date == DateTime.Today) return ChatT.T("today");
+            if (d.Date == DateTime.Today.AddDays(-1)) return ChatT.T("yesterday");
+            return d.ToString("d MMMM");
+        }
+
+        public void Fill(bool toEnd)
+        {
+            ChatGroup g = Group;
+            if (g == null) return;
+            int top = TopIndex;
+            BeginUpdate();
+            Items.Clear();
+            DateTime lastDay = DateTime.MinValue;
+            foreach (ChatMsg m in g.Messages)
+            {
+                if (m.Time.Date != lastDay) { Items.Add(new DaySep { Text = DayLabel(m.Time) }); lastDay = m.Time.Date; }
+                Items.Add(m);
+            }
+            EndUpdate();
+            if (toEnd || shownCode != g.Code) { if (Items.Count > 0) TopIndex = Items.Count - 1; }
+            else if (top < Items.Count) TopIndex = top;
+            shownCode = g.Code; shownCount = g.Messages.Count;
+        }
+
+        // ---- пузыри с «хвостиком», аватар у последнего в серии, разделители дней
+        int BubbleMaxW() { return Math.Max(S(180), (int)(ClientSize.Width * 0.72)); }
+        static int S(float v) { return Ui.S(v); }
+        Size TextSize(Graphics g, string text, int maxW)
+        {
+            return TextRenderer.MeasureText(g, text, Ui.Body, new Size(maxW, 10000), TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+        }
+        ChatMsg MsgAt(int i) { return i >= 0 && i < Items.Count ? Items[i] as ChatMsg : null; }
+        bool FirstOfRun(int i) { ChatMsg p = MsgAt(i - 1), m = MsgAt(i); return p == null || m == null || p.From != m.From; }
+        bool LastOfRun(int i) { ChatMsg n = MsgAt(i + 1), m = MsgAt(i); return n == null || m == null || n.From != m.From; }
+
+        protected override void OnMeasureItem(MeasureItemEventArgs e)
+        {
+            if (e.Index < 0 || e.Index >= Items.Count) { e.ItemHeight = S(20); return; }
+            DaySep d = Items[e.Index] as DaySep;
+            if (d != null) { e.ItemHeight = S(38); return; }
+            ChatMsg m = (ChatMsg)Items[e.Index];
+            bool mine = m.From == Chat.UserId;
+            Size t = TextSize(e.Graphics, m.Display, BubbleMaxW() - S(28));
+            int bubbleH = S(9) + t.Height + S(3) + S(14) + S(7);
+            int nameH = (!mine && FirstOfRun(e.Index)) ? S(20) : 0;
+            e.ItemHeight = nameH + bubbleH + (LastOfRun(e.Index) ? S(10) : S(3));
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            Graphics gr = e.Graphics; gr.SmoothingMode = SmoothingMode.AntiAlias;
+            gr.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            using (SolidBrush b = new SolidBrush(Ui.Bg)) gr.FillRectangle(b, e.Bounds);
+            if (e.Index < 0 || e.Index >= Items.Count) return;
+            DaySep d = Items[e.Index] as DaySep;
+            if (d != null)
+            {
+                Size ts = TextRenderer.MeasureText(gr, d.Text, Ui.Small, new Size(400, 40), TextFormatFlags.NoPadding);
+                Rectangle pr = new Rectangle(e.Bounds.X + (e.Bounds.Width - ts.Width - S(24)) / 2, e.Bounds.Y + S(8), ts.Width + S(24), S(24));
+                Ui.FillRound(gr, pr, S(12), View.Mix(Ui.Bg, Palette.Ivory, 0.12));
+                TextRenderer.DrawText(gr, d.Text, Ui.Small, pr, Palette.Ivory, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                return;
+            }
+            ChatMsg m = (ChatMsg)Items[e.Index];
+            ChatGroup g = Group;
+            bool mine = m.From == Chat.UserId;
+            bool first = FirstOfRun(e.Index), last = LastOfRun(e.Index);
+            string text = m.Display;
+            Size t = TextSize(gr, text, BubbleMaxW() - S(28));
+            string time = m.Time.ToString("HH:mm");
+            int timeW = TextRenderer.MeasureText(gr, time, Ui.Small, new Size(200, 40), TextFormatFlags.NoPadding).Width;
+            int bw = Math.Max(t.Width, timeW + S(4)) + S(26);
+            int bh = S(9) + t.Height + S(3) + S(14) + S(7);
+            int top = e.Bounds.Y + ((!mine && first) ? S(20) : 0);
+            int bx = mine ? e.Bounds.Right - S(18) - bw : e.Bounds.X + S(62);
+            Rectangle br = new Rectangle(bx, top, bw, bh);
+            Color fill = mine ? View.Mix(Palette.Emerald, Palette.Jade, 0.14) : Ui.Raised;
+            using (GraphicsPath p = Ui.Round(br, S(14))) using (SolidBrush fb = new SolidBrush(fill)) gr.FillPath(fb, p);
+            if (last)   // «хвостик» у последнего пузыря серии
+            {
+                Point[] tail = mine
+                    ? new[] { new Point(br.Right - S(10), br.Bottom - S(16)), new Point(br.Right + S(7), br.Bottom), new Point(br.Right - S(18), br.Bottom - S(2)) }
+                    : new[] { new Point(br.X + S(10), br.Bottom - S(16)), new Point(br.X - S(7), br.Bottom), new Point(br.X + S(18), br.Bottom - S(2)) };
+                using (SolidBrush fb = new SolidBrush(fill)) gr.FillPolygon(fb, tail);
+            }
+            if (!mine)
+            {
+                if (first) TextRenderer.DrawText(gr, m.Nick, Ui.Medium, new Point(bx + S(4), e.Bounds.Y + S(1)), NickColor(m.From));
+                if (last)
+                {
+                    ChatMember who = null;
+                    if (g != null) foreach (ChatMember x in g.Members) if (x.UserId == m.From) who = x;
+                    Avatars.Draw(gr, new Rectangle(e.Bounds.X + S(16), br.Bottom - S(38), S(38), S(38)), m.From, m.Nick, who != null ? who.Avatar : null);
+                }
+            }
+            TextRenderer.DrawText(gr, text, Ui.Body, new Rectangle(br.X + S(13), br.Y + S(9), t.Width + S(2), t.Height + S(2)), Palette.Ivory, TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(gr, time, Ui.Small, new Point(br.Right - S(13) - timeW, br.Bottom - S(7) - S(13)), View.Mix(Palette.Ivory, fill, 0.5));
+        }
+
+        static readonly Color[] nickTints = { Color.FromArgb(240, 150, 110), Color.FromArgb(120, 200, 150), Color.FromArgb(120, 170, 240), Color.FromArgb(220, 140, 200), Color.FromArgb(230, 200, 100), Color.FromArgb(120, 210, 210) };
+        static Color NickColor(string userId) { int h = 0; foreach (char c in userId ?? "") h = h * 31 + c; return nickTints[Math.Abs(h) % nickTints.Length]; }
+    }
+
+    // Список участников: «в сети» сверху, «не в сети» снизу; аватар, ник, точка справа
+    class MemberList : BufListBox
+    {
+        public ChatGroup Group;
+        public MemberList() { DrawMode = DrawMode.OwnerDrawFixed; ItemHeight = Ui.S(56); BorderStyle = BorderStyle.None; BackColor = Ui.Bg; IntegralHeight = false; }
+
+        public void SetGroup(ChatGroup g)
+        {
+            Group = g;
+            BeginUpdate(); Items.Clear();
+            if (g != null)
+            {
+                List<ChatMember> on = new List<ChatMember>(), off = new List<ChatMember>();
+                foreach (ChatMember m in g.Members) (m.Online ? on : off).Add(m);
+                Comparison<ChatMember> cmp = delegate(ChatMember a, ChatMember b) { return string.Compare(a.Nick, b.Nick, StringComparison.CurrentCultureIgnoreCase); };
+                on.Sort(cmp); off.Sort(cmp);
+                if (on.Count > 0) { Items.Add(string.Format(ChatT.T("online"), on.Count)); foreach (ChatMember m in on) Items.Add(m); }
+                if (off.Count > 0) { Items.Add(string.Format(ChatT.T("offlineN"), off.Count)); foreach (ChatMember m in off) Items.Add(m); }
+            }
+            EndUpdate();
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            using (SolidBrush b = new SolidBrush(Ui.Bg)) g.FillRectangle(b, e.Bounds);
+            if (e.Index < 0 || e.Index >= Items.Count) return;
+            string head = Items[e.Index] as string;
+            if (head != null)
+            {
+                TextRenderer.DrawText(g, head.ToUpperInvariant(), Ui.Caps, new Rectangle(e.Bounds.X + Ui.S(18), e.Bounds.Y + Ui.S(24), e.Bounds.Width, Ui.S(24)), Palette.Gold, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+                return;
+            }
+            ChatMember m = (ChatMember)Items[e.Index];
+            int av = Ui.S(38);
+            Rectangle ar = new Rectangle(e.Bounds.X + Ui.S(16), e.Bounds.Y + (e.Bounds.Height - av) / 2, av, av);
+            Avatars.Draw(g, ar, m.UserId, m.Nick, m.Avatar);
+            if (!m.Online) using (SolidBrush dim = new SolidBrush(Color.FromArgb(120, Ui.Bg))) g.FillEllipse(dim, ar);
+            int d = Ui.S(11);
+            Rectangle dr = new Rectangle(e.Bounds.Right - Ui.S(28), e.Bounds.Y + (e.Bounds.Height - d) / 2, d, d);
+            using (SolidBrush dot = new SolidBrush(m.Online ? Ui.Online : Color.FromArgb(120, 124, 130))) g.FillEllipse(dot, dr);
+            int tx = ar.Right + Ui.S(12);
+            Color fg = m.Online ? Palette.Ivory : Ui.Dim;
+            string nick = m.UserId == Chat.UserId ? m.Nick + "  (" + ChatT.T("you") + ")" : m.Nick;
+            TextRenderer.DrawText(g, nick, Ui.Medium, new Rectangle(tx, e.Bounds.Y + Ui.S(9), dr.X - tx - Ui.S(10), Ui.S(20)), fg, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(g, ChatT.T(m.Online ? "stOn" : "stOff"), Ui.Small, new Rectangle(tx, e.Bounds.Y + Ui.S(29), dr.X - tx - Ui.S(10), Ui.S(16)), m.Online ? Ui.Online : Ui.Dim, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+        }
+    }
+
+    // Вкладки с золотым подчёркиванием (как «Friends / Chats» в приложении Xbox)
+    class UiTabs : Control
+    {
+        public string[] Items = new string[0];
+        int sel, hot = -1;
+        public event EventHandler Changed;
+        public int Selected { get { return sel; } set { if (sel != value) { sel = value; Invalidate(); EventHandler h = Changed; if (h != null) h(this, EventArgs.Empty); } } }
+        public UiTabs()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Cursor = Cursors.Hand; Height = Ui.S(40);
+        }
+        int TabAt(int x) { if (Items.Length == 0) return -1; int i = x * Items.Length / Math.Max(1, Width); return Math.Min(Items.Length - 1, Math.Max(0, i)); }
+        protected override void OnMouseMove(MouseEventArgs e) { int h = TabAt(e.X); if (h != hot) { hot = h; Invalidate(); } base.OnMouseMove(e); }
+        protected override void OnMouseLeave(EventArgs e) { hot = -1; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnMouseDown(MouseEventArgs e) { int i = TabAt(e.X); if (i >= 0) Selected = i; base.OnMouseDown(e); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            Color behind = Parent != null ? Parent.BackColor : Ui.Bg;
+            g.Clear(behind);
+            using (Pen line = new Pen(Color.FromArgb(40, Palette.Ivory))) g.DrawLine(line, 0, Height - 1, Width, Height - 1);
+            if (Items.Length == 0) return;
+            int w = Width / Items.Length;
+            for (int i = 0; i < Items.Length; i++)
+            {
+                Rectangle r = new Rectangle(i * w, 0, w, Height - 2);
+                bool on = i == sel;
+                TextRenderer.DrawText(g, Items[i], Ui.Medium, r, on ? Palette.Ivory : (i == hot ? Palette.Ivory : Ui.Dim), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                if (on) using (SolidBrush b = new SolidBrush(Palette.Gold)) g.FillRectangle(b, r.X + Ui.S(14), Height - Ui.S(3), w - Ui.S(28), Ui.S(3));
+            }
+        }
+    }
+
+    // ───────────────────────── Док-панель чата (в духе панели «Friends» в приложении Xbox) ─────────────────────────
+    // Компактная панель над виджетом NamazBar: свёрнутая — узкая полоса «группа · онлайн ⌃», раскрытая — вкладки «Чат / Участники»,
+    // сообщения и быстрые ответы. Кнопка «↗» открывает большое окно.
+    class ChatDock : Form
+    {
+        static ChatDock instance;
+        public static bool IsOpen { get { return instance != null && !instance.IsDisposed && instance.Visible; } }
+        public static bool IsWatching(ChatGroup g) { return IsOpen && !instance.collapsed && instance.Current == g && instance.ContainsFocus; }
+        public static void CloseIfOpen() { if (instance != null && !instance.IsDisposed) instance.Close(); }
+        public static void ShowDock()
+        {
+            if (instance == null || instance.IsDisposed) instance = new ChatDock();
+            instance.collapsed = false;
+            instance.Show(); instance.ApplyState(); instance.Activate();
+        }
+
+        const int WS_EX_TOOLWINDOW = 0x80;
+        protected override CreateParams CreateParams { get { CreateParams cp = base.CreateParams; cp.ExStyle |= WS_EX_TOOLWINDOW; return cp; } }
+
+        bool collapsed;
+        int groupIdx;
+        Label lblTitle, lblBadge;
+        UiIconButton btnCollapse, btnPop, btnClose;
+        UiTabs groupTabs, viewTabs;
+        MessageView msgs; MemberList memberList;
+        StatusPill pill;
+        Panel quick, empty, bar;
+        UiButton btnNew, btnJoin;
+        readonly List<UiButton> chips = new List<UiButton>();
+
+        int S(float v) { return Ui.S(v); }
+        ChatGroup Current { get { return Chat.Groups.Count == 0 ? null : Chat.Groups[Math.Min(groupIdx, Chat.Groups.Count - 1)]; } }
+
+        ChatDock()
+        {
+            AutoScaleMode = AutoScaleMode.None;
+            FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
+            BackColor = Ui.Bg; ForeColor = Ui.Text; Font = Ui.Body; DoubleBuffered = true;
+            Size = new Size(S(400), S(600));
+            Build();
+            Chat.Changed += OnChanged;
+            FormClosed += delegate { Chat.Changed -= OnChanged; Chat.Active = null; };
+            KeyPreview = true;
+            KeyDown += delegate(object o, KeyEventArgs e) { if (e.KeyCode == Keys.Escape) Close(); };
+            Deactivate += delegate { Chat.Active = null; };
+            Activated += delegate { Chat.Active = Current; if (Current != null) Current.Unread = 0; Invalidate(true); };
+            Load += delegate { ApplyState(); OnChanged(); };
+        }
+
+        Label MakeLabel(Font f, Color c) { return new Label { Font = f, ForeColor = c, AutoSize = false, BackColor = Color.Transparent, UseMnemonic = false, AutoEllipsis = true }; }
+
+        void Build()
+        {
+            bar = new Panel { BackColor = Ui.Panel };
+            bar.Click += delegate { Toggle(); };
+            lblTitle = MakeLabel(Ui.Big, Palette.Ivory); lblTitle.Click += delegate { Toggle(); }; lblTitle.Cursor = Cursors.Hand;
+            lblBadge = MakeLabel(Ui.Small, Palette.Ink); lblBadge.TextAlign = ContentAlignment.MiddleCenter; lblBadge.BackColor = Palette.Gold; lblBadge.Visible = false;
+            btnCollapse = new UiIconButton(""); btnCollapse.Click += delegate { Toggle(); };
+            btnPop = new UiIconButton(""); btnPop.Click += delegate { ChatForm.ShowSingle(); };
+            btnClose = new UiIconButton(""); btnClose.Click += delegate { Close(); };
+            bar.Controls.AddRange(new Control[] { lblTitle, lblBadge, btnPop, btnCollapse, btnClose });
+            groupTabs = new UiTabs(); groupTabs.Changed += delegate { groupIdx = groupTabs.Selected; Refresh2(); };
+            viewTabs = new UiTabs { Items = new[] { ChatT.T("chatTab"), ChatT.T("members") } }; viewTabs.Changed += delegate { Refresh2(); };
+            msgs = new MessageView(); memberList = new MemberList();
+            pill = new StatusPill();
+            quick = new Panel { BackColor = Ui.Panel };
+            quick.Paint += delegate(object o, PaintEventArgs e) { using (Pen p = new Pen(Color.FromArgb(40, Palette.Ivory))) e.Graphics.DrawLine(p, 0, 0, quick.Width, 0); };
+            foreach (string id in ChatT.PresetIds)
+            {
+                string pid = id;
+                UiButton b = new UiButton(ChatT.Preset(id, id), UiKind.Chip); b.Font = Ui.Small; b.Height = S(28);
+                b.Click += delegate { ChatGroup g = Current; if (g != null && Chat.Connected) Chat.SendPreset(g.Code, pid); };
+                quick.Controls.Add(b); chips.Add(b);
+            }
+            empty = new Panel { BackColor = Ui.Bg };
+            empty.Paint += PaintEmpty;
+            btnNew = new UiButton("+  " + ChatT.T("create"), UiKind.Primary);
+            btnNew.Click += delegate { string n = Dlg.Ask(this, ChatT.T("create"), ChatT.T("newName"), ""); if (!string.IsNullOrEmpty(n)) Chat.CreateGroup(n); };
+            btnJoin = new UiButton(ChatT.T("join"), UiKind.Secondary);
+            btnJoin.Click += delegate { string c = Dlg.Ask(this, ChatT.T("join"), ChatT.T("enterCode"), ""); if (!string.IsNullOrEmpty(c)) Chat.RequestJoin(c); };
+            empty.Controls.AddRange(new Control[] { btnNew, btnJoin });
+            Controls.AddRange(new Control[] { bar, groupTabs, viewTabs, msgs, memberList, pill, quick, empty });
+        }
+
+        void PaintEmpty(object s, PaintEventArgs e)
+        {
+            Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            int w = empty.Width; float cx = w / 2f, cy = S(80), r = S(44);
+            using (GraphicsPath p = new GraphicsPath())
+            {
+                Palette.Star8(p, cx, cy, r);
+                using (SolidBrush b = new SolidBrush(Color.FromArgb(28, Palette.Emerald))) g.FillPath(b, p);
+                using (Pen pen = new Pen(Color.FromArgb(150, Palette.Gold), 1.5f)) g.DrawPath(pen, p);
+            }
+            TextRenderer.DrawText(g, ChatT.T("noGroup"), Ui.Medium, new Rectangle(S(24), (int)cy + (int)r + S(14), w - S(48), S(44)), Palette.Ivory, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
+            TextRenderer.DrawText(g, ChatT.T("noGroupHint"), Ui.Small, new Rectangle(S(28), (int)cy + (int)r + S(62), w - S(56), S(54)), Ui.Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
+        }
+
+        void Toggle() { collapsed = !collapsed; ApplyState(); if (!collapsed) Activate(); }
+
+        void OnChanged() { if (IsDisposed) return; Refresh2(); }
+
+        // Содержимое и раскладка; нижний край панели остаётся на месте (панель «растёт» вверх)
+        void Refresh2()
+        {
+            if (IsDisposed) return;
+            ChatGroup g = Current;
+            groupIdx = Math.Max(0, Math.Min(groupIdx, Math.Max(0, Chat.Groups.Count - 1)));
+            string[] names = new string[Chat.Groups.Count];
+            for (int i = 0; i < names.Length; i++) names[i] = Chat.Groups[i].Name;
+            groupTabs.Items = names; if (groupTabs.Selected != groupIdx) { int old = groupIdx; groupTabs.Selected = old; }
+            groupTabs.Invalidate();
+            int unreadOthers = 0; foreach (ChatGroup x in Chat.Groups) if (x != g || collapsed) unreadOthers += x.Unread;
+            if (g != null && !collapsed && ContainsFocus) g.Unread = 0;
+            int unread = 0; foreach (ChatGroup x in Chat.Groups) unread += x.Unread;
+            lblTitle.Text = g != null ? g.Name : ChatT.T("menu").TrimEnd('…');
+            lblBadge.Visible = unread > 0 && collapsed; lblBadge.Text = unread > 99 ? "99+" : unread.ToString();
+            if (g != null) { msgs.SetGroup(g); memberList.SetGroup(g); } else { msgs.SetGroup(null); memberList.SetGroup(null); }
+            bool can = Chat.Connected && g != null;
+            foreach (UiButton b in chips) b.Enabled = can;
+            btnNew.Enabled = btnJoin.Enabled = Chat.Connected;
+            Color green = Ui.Online, amber = Color.FromArgb(240, 178, 84), red = Color.FromArgb(240, 110, 90);
+            if (!Chat.Configured) pill.Set(amber, ChatT.T("setup"));
+            else if (Chat.Connected) pill.Set(green, ChatT.T("connected"));
+            else if (!string.IsNullOrEmpty(Chat.LastError)) pill.Set(red, ChatT.T("connecting") + " " + Chat.LastError);
+            else pill.Set(amber, ChatT.T("connecting"));
+            ApplyState();
+        }
+
+        void ApplyState()
+        {
+            if (IsDisposed || bar == null) return;
+            ChatGroup g = Current;
+            int W = S(400), barH = S(54);
+            btnCollapse.Glyph = collapsed ? "" : "";
+            // содержимое развёрнутой панели
+            bool has = g != null;
+            groupTabs.Visible = !collapsed && Chat.Groups.Count > 1;
+            viewTabs.Visible = !collapsed && has;
+            bool chatTab = viewTabs.Selected == 0;
+            msgs.Visible = !collapsed && has && chatTab;
+            memberList.Visible = !collapsed && has && !chatTab;
+            quick.Visible = !collapsed && has && chatTab;
+            empty.Visible = !collapsed && !has;
+            pill.Visible = !collapsed && (!Chat.Connected || !Chat.Configured);
+            int H = collapsed ? barH : S(600);
+            Rectangle anchor = Rectangle.Empty;
+            try { if (ChatToast.Anchor != null) anchor = ChatToast.Anchor(); } catch { }
+            Rectangle wa = Screen.PrimaryScreen.WorkingArea;
+            int x, bottom;
+            if (anchor.Width > 0 && anchor.Height > 0)
+            {
+                Screen scr = Screen.FromRectangle(anchor); wa = scr.WorkingArea;
+                x = Math.Max(wa.Left + 8, Math.Min(anchor.Left, wa.Right - W - 8)); bottom = Math.Min(anchor.Top, wa.Bottom) - 8;
+            }
+            else { x = wa.Right - W - 12; bottom = wa.Bottom - 12; }
+            SetBounds(x, Math.Max(wa.Top + 8, bottom - H), W, H);
+            LayoutChildren(W, H, barH);
+            try { using (GraphicsPath p = Ui.Round(new Rectangle(0, 0, W, H), S(12))) Region = new System.Drawing.Region(p); } catch { }
+            Invalidate(true);
+        }
+
+        void LayoutChildren(int W, int H, int barH)
+        {
+            bar.SetBounds(0, 0, W, barH);
+            btnClose.SetBounds(W - S(44), S(7), S(40), S(40));
+            btnCollapse.SetBounds(W - S(88), S(7), S(40), S(40));
+            btnPop.SetBounds(W - S(132), S(7), S(40), S(40));
+            lblBadge.SetBounds(W - S(190), S(15), S(34), S(24));
+            lblTitle.SetBounds(S(16), S(10), W - S(16) - S(140) - (lblBadge.Visible ? S(50) : 0), S(34));
+            int y = barH;
+            if (groupTabs.Visible) { groupTabs.SetBounds(0, y, W, S(40)); y += S(40); }
+            if (viewTabs.Visible) { viewTabs.SetBounds(0, y, W, S(40)); y += S(40); }
+            if (pill.Visible) { pill.SetBounds(S(14), y + S(8), W - S(28), S(24)); y += S(40); }
+            // быстрые ответы — снизу
+            int qpad = S(12), x = qpad, cy = S(10), rowH = S(28), gap = S(6);
+            foreach (UiButton b in chips)
+            {
+                int w = Math.Min(W - 2 * qpad, b.PreferredWidth());
+                if (x + w > W - qpad && x > qpad) { x = qpad; cy += rowH + gap; }
+                b.SetBounds(x, cy, w, rowH); x += w + gap;
+            }
+            int qh = cy + rowH + S(10);
+            quick.SetBounds(0, H - qh, W, qh);
+            int bottomLimit = quick.Visible ? H - qh : H;
+            msgs.SetBounds(0, y, W, Math.Max(S(40), bottomLimit - y));
+            memberList.SetBounds(0, y, W, Math.Max(S(40), H - y));
+            empty.SetBounds(0, y, W, Math.Max(S(40), H - y));
+            btnNew.SetBounds(S(24), empty.Height - S(110), W - S(48), S(42));
+            btnJoin.SetBounds(S(24), empty.Height - S(60), W - S(48), S(42));
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            using (Pen p = new Pen(Color.FromArgb(160, Palette.Gold), 2f)) e.Graphics.DrawRectangle(p, 1, 1, Width - 3, Height - 3);
+            base.OnPaint(e);
+        }
+    }
+
     // ───────────────────────── Окно чата (в духе Telegram / WhatsApp) ─────────────────────────
     class DaySep { public string Text; }
 
@@ -1218,11 +1643,11 @@ namespace NamazBar
         StatusPill pill;
         UiIconButton btnGear, btnMore, btnCopy;
         UiButton btnNew, btnJoin;
-        BufListBox lstGroups, lstMsg;
+        BufListBox lstGroups;
+        MessageView lstMsg;
         readonly List<UiButton> chips = new List<UiButton>();
         string noticeText; DateTime noticeAt = DateTime.MinValue; bool noticeError;
         System.Windows.Forms.Timer statusTimer;
-        string shownCode; int shownCount = -1;
         bool updating;
         ContextMenuStrip moreMenu;
 
@@ -1285,9 +1710,7 @@ namespace NamazBar
             moreMenu = new ContextMenuStrip(); MenuUi.Style(moreMenu);
             btnMore.Click += delegate { BuildMoreMenu(); moreMenu.Show(btnMore, new Point(btnMore.Width, btnMore.Height), ToolStripDropDownDirection.BelowLeft); };
             chatHead.Controls.AddRange(new Control[] { lblName, lblSub, members, btnCopy, btnMore });
-            lstMsg = new BufListBox { DrawMode = DrawMode.OwnerDrawVariable, BorderStyle = BorderStyle.None, BackColor = Ui.Bg, IntegralHeight = false };
-            lstMsg.MeasureItem += MeasureMsg; lstMsg.DrawItem += DrawMsg;
-            lstMsg.Resize += delegate { FillMessages(false); };
+            lstMsg = new MessageView();
             empty = new Panel { BackColor = Ui.Bg }; empty.Paint += PaintEmpty;
             quick = new Panel { BackColor = Ui.Panel };
             quick.Paint += delegate(object o, PaintEventArgs e) { using (Pen p = new Pen(Color.FromArgb(40, Palette.Ivory))) e.Graphics.DrawLine(p, 0, 0, quick.Width, 0); };
@@ -1418,34 +1841,8 @@ namespace NamazBar
                 lblSub.Text = string.Format(ChatT.T("code"), g.Code) + "   ·   " + g.Members.Count + " / " + string.Format(ChatT.T("online"), g.OnlineCount);
                 members.Invalidate(); chatHead.Invalidate();
             }
-            else { lstMsg.Items.Clear(); shownCount = -1; shownCode = null; empty.Invalidate(); return; }
-            if (shownCode != g.Code || shownCount != g.Messages.Count) FillMessages(true);
-        }
-
-        string DayLabel(DateTime d)
-        {
-            if (d.Date == DateTime.Today) return ChatT.T("today");
-            if (d.Date == DateTime.Today.AddDays(-1)) return ChatT.T("yesterday");
-            return d.ToString("d MMMM");
-        }
-
-        void FillMessages(bool toEnd)
-        {
-            ChatGroup g = Current;
-            if (g == null || lstMsg == null) return;
-            int top = lstMsg.TopIndex;
-            lstMsg.BeginUpdate();
-            lstMsg.Items.Clear();
-            DateTime lastDay = DateTime.MinValue;
-            foreach (ChatMsg m in g.Messages)
-            {
-                if (m.Time.Date != lastDay) { lstMsg.Items.Add(new DaySep { Text = DayLabel(m.Time) }); lastDay = m.Time.Date; }
-                lstMsg.Items.Add(m);
-            }
-            lstMsg.EndUpdate();
-            if (toEnd || shownCode != g.Code) { if (lstMsg.Items.Count > 0) lstMsg.TopIndex = lstMsg.Items.Count - 1; }
-            else if (top < lstMsg.Items.Count) lstMsg.TopIndex = top;
-            shownCode = g.Code; shownCount = g.Messages.Count;
+            else { lstMsg.SetGroup(null); empty.Invalidate(); return; }
+            lstMsg.SetGroup(g);
         }
 
         // ---- список чатов: аватар, название, последнее сообщение, время, непрочитанные
@@ -1535,82 +1932,5 @@ namespace NamazBar
             TextRenderer.DrawText(g, ChatT.T("noGroup"), Ui.Big, new Rectangle(S(40), (int)cy + (int)r + S(24), w - S(80), S(30)), Palette.Ivory, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
             TextRenderer.DrawText(g, ChatT.T("noGroupHint"), Ui.Body, new Rectangle(S(60), (int)cy + (int)r + S(62), w - S(120), S(50)), Ui.Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
         }
-
-        // ---- сообщения: пузыри с «хвостиком», аватар у последнего в серии, разделители дней
-        int BubbleMaxW() { return Math.Max(S(180), (int)(lstMsg.ClientSize.Width * 0.66)); }
-        Size TextSize(Graphics g, string text, int maxW)
-        {
-            return TextRenderer.MeasureText(g, text, Ui.Body, new Size(maxW, 10000), TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
-        }
-        ChatMsg MsgAt(int i) { return i >= 0 && i < lstMsg.Items.Count ? lstMsg.Items[i] as ChatMsg : null; }
-        bool FirstOfRun(int i) { ChatMsg p = MsgAt(i - 1), m = MsgAt(i); return p == null || m == null || p.From != m.From; }
-        bool LastOfRun(int i) { ChatMsg n = MsgAt(i + 1), m = MsgAt(i); return n == null || m == null || n.From != m.From; }
-
-        void MeasureMsg(object s, MeasureItemEventArgs e)
-        {
-            DaySep d = lstMsg.Items[e.Index] as DaySep;
-            if (d != null) { e.ItemHeight = S(38); return; }
-            ChatMsg m = (ChatMsg)lstMsg.Items[e.Index];
-            bool mine = m.From == Chat.UserId;
-            Size t = TextSize(e.Graphics, m.Display, BubbleMaxW() - S(28));
-            int bubbleH = S(9) + t.Height + S(3) + S(14) + S(7);
-            int nameH = (!mine && FirstOfRun(e.Index)) ? S(20) : 0;
-            e.ItemHeight = nameH + bubbleH + (LastOfRun(e.Index) ? S(10) : S(3));
-        }
-
-        void DrawMsg(object s, DrawItemEventArgs e)
-        {
-            Graphics gr = e.Graphics; gr.SmoothingMode = SmoothingMode.AntiAlias;
-            gr.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            using (SolidBrush b = new SolidBrush(Ui.Bg)) gr.FillRectangle(b, e.Bounds);
-            if (e.Index < 0 || e.Index >= lstMsg.Items.Count) return;
-            DaySep d = lstMsg.Items[e.Index] as DaySep;
-            if (d != null)
-            {
-                Size ts = TextRenderer.MeasureText(gr, d.Text, Ui.Small, new Size(400, 40), TextFormatFlags.NoPadding);
-                Rectangle pr = new Rectangle(e.Bounds.X + (e.Bounds.Width - ts.Width - S(24)) / 2, e.Bounds.Y + S(8), ts.Width + S(24), S(24));
-                Ui.FillRound(gr, pr, S(12), View.Mix(Ui.Bg, Palette.Ivory, 0.12));
-                TextRenderer.DrawText(gr, d.Text, Ui.Small, pr, Palette.Ivory, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                return;
-            }
-            ChatMsg m = (ChatMsg)lstMsg.Items[e.Index];
-            ChatGroup g = Current;
-            bool mine = m.From == Chat.UserId;
-            bool first = FirstOfRun(e.Index), last = LastOfRun(e.Index);
-            string text = m.Display;
-            Size t = TextSize(gr, text, BubbleMaxW() - S(28));
-            string time = m.Time.ToString("HH:mm");
-            int timeW = TextRenderer.MeasureText(gr, time, Ui.Small, new Size(200, 40), TextFormatFlags.NoPadding).Width;
-            int bw = Math.Max(t.Width, timeW + S(4)) + S(26);
-            int bh = S(9) + t.Height + S(3) + S(14) + S(7);
-            int top = e.Bounds.Y + ((!mine && first) ? S(20) : 0);
-            int bx = mine ? e.Bounds.Right - S(18) - bw : e.Bounds.X + S(62);
-            Rectangle br = new Rectangle(bx, top, bw, bh);
-            Color fill = mine ? View.Mix(Palette.Emerald, Palette.Jade, 0.14) : Ui.Raised;
-            int rad = S(14);
-            using (GraphicsPath p = Ui.Round(br, rad)) using (SolidBrush fb = new SolidBrush(fill)) gr.FillPath(fb, p);
-            if (last)   // «хвостик» у последнего пузыря серии
-            {
-                Point[] tail = mine
-                    ? new[] { new Point(br.Right - S(10), br.Bottom - S(16)), new Point(br.Right + S(7), br.Bottom), new Point(br.Right - S(18), br.Bottom - S(2)) }
-                    : new[] { new Point(br.X + S(10), br.Bottom - S(16)), new Point(br.X - S(7), br.Bottom), new Point(br.X + S(18), br.Bottom - S(2)) };
-                using (SolidBrush fb = new SolidBrush(fill)) gr.FillPolygon(fb, tail);
-            }
-            if (!mine)
-            {
-                if (first) TextRenderer.DrawText(gr, m.Nick, Ui.Medium, new Point(bx + S(4), e.Bounds.Y + S(1)), NickColor(m.From));
-                if (last)
-                {
-                    ChatMember who = null;
-                    if (g != null) foreach (ChatMember x in g.Members) if (x.UserId == m.From) who = x;
-                    Avatars.Draw(gr, new Rectangle(e.Bounds.X + S(16), br.Bottom - S(38), S(38), S(38)), m.From, m.Nick, who != null ? who.Avatar : null);
-                }
-            }
-            TextRenderer.DrawText(gr, text, Ui.Body, new Rectangle(br.X + S(13), br.Y + S(9), t.Width + S(2), t.Height + S(2)), Palette.Ivory, TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
-            TextRenderer.DrawText(gr, time, Ui.Small, new Point(br.Right - S(13) - timeW, br.Bottom - S(7) - S(13)), View.Mix(Palette.Ivory, fill, 0.5));
-        }
-
-        static readonly Color[] nickTints = { Color.FromArgb(240, 150, 110), Color.FromArgb(120, 200, 150), Color.FromArgb(120, 170, 240), Color.FromArgb(220, 140, 200), Color.FromArgb(230, 200, 100), Color.FromArgb(120, 210, 210) };
-        static Color NickColor(string userId) { int h = 0; foreach (char c in userId ?? "") h = h * 31 + c; return nickTints[Math.Abs(h) % nickTints.Length]; }
     }
 }
