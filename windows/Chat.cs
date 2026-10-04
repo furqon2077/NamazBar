@@ -1541,7 +1541,8 @@ namespace NamazBar
         UiTabs groupTabs, viewTabs;
         MessageView msgs; MemberList memberList;
         StatusPill pill; Snackbar snack;
-        Panel bar, quick, memberFoot, settingsPanel, addPanel;
+        Panel bar, quick, memberFoot, settingsPanel, addPanel, codeBar;
+        Label lblCode; UiIconButton btnCopyIcon;
         UiButton btnCopyCode, btnLeave, btnSave, btnCancelSettings, btnCreate, btnJoin;
         UiInput inNick, inServer, inName, inCode;
         UiToggle tgAuto, tgSound;
@@ -1608,15 +1609,19 @@ namespace NamazBar
                 quick.Controls.Add(b); chips.Add(b);
             }
 
+            // ---- строка с кодом группы и значком «копировать» (код нужен сразу после создания группы)
+            codeBar = new Panel { BackColor = Ui.Bg };
+            lblCode = MakeLabel(Ui.Small, Ui.Dim); lblCode.TextAlign = ContentAlignment.MiddleLeft;
+            btnCopyIcon = new UiIconButton("\uE8C8");
+            btnCopyIcon.Click += delegate { CopyCode(); };
+            lblCode.Cursor = Cursors.Hand; lblCode.Click += delegate { CopyCode(); };
+            codeBar.Controls.AddRange(new Control[] { lblCode, btnCopyIcon });
+
             // ---- участники: код группы и «Выйти»
             memberFoot = new Panel { BackColor = Ui.Panel };
             memberFoot.Paint += delegate(object o, PaintEventArgs e) { using (Pen p = new Pen(Color.FromArgb(40, Ui.Text))) e.Graphics.DrawLine(p, 0, 0, memberFoot.Width, 0); };
             btnCopyCode = new UiButton(ChatT.T("copy"), UiKind.Secondary);
-            btnCopyCode.Click += delegate
-            {
-                ChatGroup g = CurrentGroup;
-                if (g != null) { try { Clipboard.SetText(g.Code); OnNotice(ChatT.T("copied") + ": " + g.Code, false); } catch { } }
-            };
+            btnCopyCode.Click += delegate { CopyCode(); };
             btnLeave = new UiButton(ChatT.T("leave"), UiKind.Danger);
             btnLeave.Click += delegate { ChatGroup g = CurrentGroup; if (g != null) Chat.Leave(g.Code); };
             memberFoot.Controls.AddRange(new Control[] { btnCopyCode, btnLeave });
@@ -1646,7 +1651,13 @@ namespace NamazBar
             addPanel.Controls.AddRange(new Control[] { lblAddHint, inName, btnCreate, inCode, btnJoin });
             addPanel.Paint += PaintAdd;
 
-            Controls.AddRange(new Control[] { snack, bar, groupTabs, viewTabs, msgs, memberList, memberFoot, pill, quick, settingsPanel, addPanel });
+            Controls.AddRange(new Control[] { snack, bar, groupTabs, viewTabs, codeBar, msgs, memberList, memberFoot, pill, quick, settingsPanel, addPanel });
+        }
+
+        void CopyCode()
+        {
+            ChatGroup g = CurrentGroup; if (g == null) return;
+            try { Clipboard.SetText(g.Code); OnNotice(ChatT.T("copied") + ": " + g.Code, false); } catch { }
         }
 
         void PaintAdd(object s, PaintEventArgs e)
@@ -1740,6 +1751,7 @@ namespace NamazBar
             lblTitle.Text = (g != null && Chat.Configured && !forceSettings) ? g.Name : ChatT.T("menu").TrimEnd('…');
             lblBadge.Visible = unread > 0 && collapsed; lblBadge.Text = unread > 99 ? "99+" : unread.ToString();
             msgs.SetGroup(g); memberList.SetGroup(g);
+            lblCode.Text = g != null ? string.Format(ChatT.T("code"), g.Code) : "";
             foreach (UiButton b in chips) b.Enabled = g != null;
             btnLeave.Enabled = Chat.Connected;
             lblSetupHint.Text = Chat.Configured ? "" : ChatT.T("setup");
@@ -1758,7 +1770,7 @@ namespace NamazBar
             bool showAdd = !collapsed && cfg && !forceSettings && (n == 0 || groupIdx >= n);
             bool showGroup = !collapsed && cfg && !forceSettings && n > 0 && groupIdx < n;
             groupTabs.Visible = !collapsed && cfg && !forceSettings;
-            viewTabs.Visible = showGroup;
+            viewTabs.Visible = codeBar.Visible = showGroup;
             msgs.Visible = quick.Visible = showGroup && view == 0;
             memberList.Visible = memberFoot.Visible = showGroup && view == 1;
             settingsPanel.Visible = showSettings; addPanel.Visible = showAdd;
@@ -1799,6 +1811,13 @@ namespace NamazBar
             int y = barH;
             if (groupTabs.Visible) { groupTabs.SetBounds(0, y, W, S(34)); y += S(34); }
             if (viewTabs.Visible) { viewTabs.SetBounds(0, y, W, S(34)); y += S(34); }
+            if (codeBar.Visible)
+            {
+                codeBar.SetBounds(0, y, W, S(30));
+                lblCode.SetBounds(S(14), 0, W - S(60), S(30));
+                btnCopyIcon.SetBounds(W - S(40), S(2), S(26), S(26));
+                y += S(30);
+            }
             if (pill.Visible) { pill.SetBounds(S(12), y + S(6), W - S(24), S(22)); y += S(34); }
             int rest = Math.Max(S(40), H - y);
             // быстрые ответы — снизу
