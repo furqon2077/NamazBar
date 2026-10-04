@@ -1479,7 +1479,8 @@ namespace NamazBar
         bool allowClose;
         Rectangle holdBtn;
         readonly float dpi;
-        Font fBig, fTime, fText, fSmall;
+        Font fBig, fTime, fText, fSmall, fClock;
+        BreakChat chat;
         static readonly List<BreakForm> open = new List<BreakForm>();
 
         public static void ShowAll(string prayer, string time, int minutes)
@@ -1507,10 +1508,18 @@ namespace NamazBar
             Bounds = bounds; TopMost = true; DoubleBuffered = true; KeyPreview = true;
             BackColor = Palette.EmeraldDark;
             using (Graphics g = CreateGraphics()) dpi = g.DpiX / 96f;
-            fBig = Palette.Serif(30f, FontStyle.Bold);
-            fTime = Palette.Serif(84f, FontStyle.Bold);
-            fText = Palette.Serif(17f, FontStyle.Italic);
-            fSmall = Fonts.Get("NB Sans", 11f, "Segoe UI", FontStyle.Regular);
+            if (Chat.Configured && Chat.Groups.Count > 0)   // правая половина экрана — чат в том же стиле, что и окно чата
+            {
+                chat = new BreakChat();
+                int lw0 = bounds.Width / 2;
+                chat.SetBounds(lw0 + S(10), S(110), bounds.Width - lw0 - S(10) - S(40), Math.Max(S(300), bounds.Height - S(110) - S(130)));
+                Controls.Add(chat);
+            }
+            fBig = Palette.Serif(21f, FontStyle.Bold);
+            fTime = Palette.Serif(54f, FontStyle.Bold);
+            fText = Palette.Serif(13f, FontStyle.Italic);
+            fSmall = Fonts.Get("NB Sans", 10f, "Segoe UI", FontStyle.Regular);
+            fClock = Palette.Serif(30f, FontStyle.Bold);
             timer.Interval = 50;
             timer.Tick += delegate
             {
@@ -1544,7 +1553,8 @@ namespace NamazBar
             string head = Words.T("breakT") + " · " + prayer + " · " + time;
             TimeSpan left = until - DateTime.Now; if (left < TimeSpan.Zero) left = TimeSpan.Zero;
             string clock = ((int)left.TotalMinutes).ToString("00") + ":" + left.Seconds.ToString("00");
-            float w = Math.Min(r.Width - S(80), S(900));
+            int lw = r.Width / 2;   // слева — компактная информация, справа — чат
+            float w = Math.Min(lw - S(70), S(640));
             // блоки сверху вниз, всё вместе — по центру экрана над кнопкой выхода
             SizeF hs0 = g.MeasureString(head, fBig, (int)w + S(200));
             SizeF cs = g.MeasureString(clock, fTime);
@@ -1560,9 +1570,9 @@ namespace NamazBar
             }
             float y = Math.Max(S(24), (r.Height - S(110) - total) / 2);
             using (SolidBrush gold = new SolidBrush(Palette.Gold))
-                g.DrawString(head, fBig, gold, new RectangleF(0, y, r.Width, hs0.Height), c);
+                g.DrawString(head, fBig, gold, new RectangleF(0, y, lw, hs0.Height), c);
             y += hs0.Height + S(24);
-            float cx = r.Width / 2f, cy = y + star;
+            float cx = lw / 2f, cy = y + star;
             using (GraphicsPath p = new GraphicsPath())
             {
                 Palette.Star8(p, cx, cy, star);
@@ -1574,34 +1584,46 @@ namespace NamazBar
             using (SolidBrush ib = new SolidBrush(Palette.Ivory))
                 g.DrawString(clock, fTime, ib, cx - cs.Width / 2, cy - cs.Height / 2);
             y = cy + star + S(24);
-            Palette.Divider(g, cx - S(220), cx + S(220), y + S(8), S(7), Palette.Gold);
+            Palette.Divider(g, cx - S(150), cx + S(150), y + S(8), S(7), Palette.Gold);
             y += S(30);
             using (SolidBrush light = new SolidBrush(Palette.Ivory))
             using (SolidBrush dim = new SolidBrush(Color.FromArgb(210, Palette.Gold)))
             {
-                float x = (r.Width - w) / 2;
+                float x = (lw - w) / 2;
                 g.DrawString(Words.T("ayah"), fText, light, new RectangleF(x, y, w, hA), c); y += hA + S(4);
                 g.DrawString(Words.T("ayahRef"), fSmall, dim, new RectangleF(x, y, w, hRef), c); y += hRef + S(14);
                 g.DrawString(Words.T("hadith"), fText, light, new RectangleF(x, y, w, hH), c); y += hH + S(4);
                 g.DrawString(Words.T("hadRef"), fSmall, dim, new RectangleF(x, y, w, hRef), c);
             }
-            // групповой чат прямо на экране перерыва: справа вверху, где виднее всего — позвать на намаз одним нажатием
-            chatHits.Clear();
-            if (Chat.Configured && Chat.Groups.Count > 0) DrawChatCard(g, r, (int)((r.Width - hs0.Width) / 2) - S(44));   // справа от заголовка, не наезжая на него
-            else
+            // справа — чат (живые элементы BreakChat); если групп нет, показываем последнюю реплику, как раньше
+            if (chat == null)
             {
                 string chatLine = Chat.RecentLine();
                 if (chatLine != null)
                 {
-                    float cw = Math.Min(r.Width - S(80), S(900));
+                    float cw = Math.Min(lw - S(80), S(640));
                     using (SolidBrush cb = new SolidBrush(Color.FromArgb(235, Palette.Gold)))
-                        g.DrawString(chatLine, fSmall, cb, new RectangleF((r.Width - cw) / 2, r.Height - S(150), cw, S(40)), c);
+                        g.DrawString(chatLine, fSmall, cb, new RectangleF((lw - cw) / 2, r.Height - S(150), cw, S(40)), c);
+                }
+            }
+            // текущие часы — справа вверху
+            {
+                string now = DateTime.Now.ToString("HH:mm");
+                CultureInfo ci;
+                try { ci = new CultureInfo(new[] { "uz-Latn-UZ", "uz-Cyrl-UZ", "ru-RU", "en-US" }[Lang.Cur]); } catch { ci = CultureInfo.InvariantCulture; }
+                string date = DateTime.Now.ToString("dddd, d MMMM", ci);
+                using (StringFormat rf = new StringFormat { Alignment = StringAlignment.Far })
+                using (SolidBrush ib = new SolidBrush(Palette.Ivory))
+                using (SolidBrush db = new SolidBrush(Color.FromArgb(200, Palette.Gold)))
+                {
+                    g.DrawString(now, fClock, ib, new RectangleF(lw, S(20), lw - S(40), S(48)), rf);
+                    g.DrawString(date, fSmall, db, new RectangleF(lw, S(66), lw - S(40), S(22)), rf);
                 }
             }
             // кнопка «удерживайте, чтобы выйти» (на экстренный случай)
             string hs = Words.T("holdSkip");
             SizeF bs = g.MeasureString(hs, fSmall);
-            holdBtn = new Rectangle((int)(r.Width / 2 - bs.Width / 2 - S(24)), r.Height - S(100), (int)bs.Width + S(48), S(44));
+            holdBtn = new Rectangle((int)(lw / 2 - bs.Width / 2 - S(24)), r.Height - S(100), (int)bs.Width + S(48), S(44));
             using (GraphicsPath p = Layered.Round(holdBtn, S(22)))
             {
                 using (Pen pen = new Pen(Color.FromArgb(130, Palette.Gold), S(1.2f))) g.DrawPath(pen, p);
@@ -1617,144 +1639,8 @@ namespace NamazBar
         }
 
 
-        // ── Чат на экране перерыва ──
-        readonly List<KeyValuePair<Rectangle, string>> chatHits = new List<KeyValuePair<Rectangle, string>>();
-        static int chatGi;
-        string chatFlash; DateTime chatFlashAt = DateTime.MinValue; bool chatFlashErr;
-
-        void DrawChatCard(Graphics g, Rectangle r, int maxW)
-        {
-            if (chatGi >= Chat.Groups.Count) chatGi = 0;
-            ChatGroup grp = Chat.Groups[chatGi];
-            int W = Math.Max(S(250), Math.Min(S(350), maxW)), pad = S(14), x0 = r.Width - W - S(28), y0 = S(28);
-            using (Font fh = Fonts.Get("NB Sans Bold", 11f, "Segoe UI", FontStyle.Bold))
-            using (Font fm = Fonts.Get("NB Sans", 10f, "Segoe UI", FontStyle.Regular))
-            using (Font fc = Fonts.Get("NB Sans Medium", 9.5f, "Segoe UI Semibold", FontStyle.Regular))
-            using (Font fb = Fonts.Get("NB Sans Bold", 12f, "Segoe UI", FontStyle.Bold))
-            using (StringFormat nf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            {
-                // кнопки быстрых фраз (кроме «позвать» — у неё своя большая кнопка): считаем раскладку заранее, чтобы знать высоту карточки
-                List<string> ids = new List<string>();
-                foreach (string id in ChatT.PresetIds) if (id != "together") ids.Add(id);
-                List<Rectangle> chips = new List<Rectangle>();
-                int cx = 0, cy = 0, chipH = S(28), gap = S(6), inner = W - 2 * pad;
-                foreach (string id in ids)
-                {
-                    int cw = (int)Math.Ceiling(g.MeasureString(ChatT.Preset(id, id), fc).Width) + S(22);
-                    cw = Math.Min(cw, inner);
-                    if (cx + cw > inner && cx > 0) { cx = 0; cy += chipH + gap; }
-                    chips.Add(new Rectangle(cx, cy, cw, chipH)); cx += cw + gap;
-                }
-                int chipsH = cy + chipH;
-
-                List<ChatMsg> msgs = new List<ChatMsg>();
-                for (int i = Math.Max(0, grp.Messages.Count - 3); i < grp.Messages.Count; i++) msgs.Add(grp.Messages[i]);
-                int lineH = S(40), msgsH = msgs.Count * lineH;
-                int H = pad + S(22) + S(8) + S(28) + S(10) + (msgsH > 0 ? msgsH + S(10) : 0) + S(46) + S(10) + chipsH + pad;
-                Rectangle card = new Rectangle(x0, y0, W, H);
-
-                using (GraphicsPath p = Layered.Round(card, S(16)))
-                {
-                    using (SolidBrush b = new SolidBrush(Color.FromArgb(225, 5, 26, 21))) g.FillPath(b, p);
-                    using (Pen pen = new Pen(Color.FromArgb(170, Palette.Gold), Math.Max(1f, S(1.2f)))) g.DrawPath(pen, p);
-                }
-                float y = y0 + pad;
-                // заголовок: группа · сколько онлайн (если групп несколько — нажать, чтобы переключить)
-                string title = grp.Name + "  \u00B7  " + grp.OnlineCount + "/" + grp.Members.Count + (Chat.Groups.Count > 1 ? "  \u25BE" : "");
-                Rectangle hr = new Rectangle(x0 + pad, (int)y, inner, S(22));
-                using (SolidBrush gold = new SolidBrush(Palette.Gold)) g.DrawString(title, fh, gold, new RectangleF(hr.X, hr.Y, inner * 0.7f, hr.Height), nf);
-                if (Chat.Groups.Count > 1) chatHits.Add(new KeyValuePair<Rectangle, string>(hr, "group"));
-                if (chatFlash != null && (DateTime.Now - chatFlashAt).TotalSeconds < 2.5)
-                    using (SolidBrush fb2 = new SolidBrush(chatFlashErr ? Color.FromArgb(240, 140, 120) : Color.FromArgb(120, 220, 150)))
-                    using (StringFormat rf = new StringFormat { Alignment = StringAlignment.Far, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-                        g.DrawString(chatFlash, fm, fb2, new RectangleF(hr.X + inner * 0.55f, hr.Y + S(2), inner * 0.45f, hr.Height), rf);
-                y += S(22) + S(8);
-                // участники: онлайн первыми, офлайн приглушены
-                List<ChatMember> ms = new List<ChatMember>(grp.Members);
-                ms.Sort(delegate(ChatMember a, ChatMember b) { return a.Online == b.Online ? 0 : (a.Online ? -1 : 1); });
-                int av = S(26), step = S(30);
-                for (int i = 0; i < ms.Count && (i + 1) * step <= inner; i++)
-                {
-                    Rectangle ar = new Rectangle(x0 + pad + i * step, (int)y, av, av);
-                    Avatars.Draw(g, ar, ms[i].UserId, ms[i].Nick, ms[i].Avatar);
-                    if (!ms[i].Online) using (SolidBrush dim = new SolidBrush(Color.FromArgb(130, 5, 26, 21))) g.FillEllipse(dim, ar);
-                    int d = S(8);
-                    using (SolidBrush db = new SolidBrush(ms[i].Online ? Color.FromArgb(70, 200, 120) : Color.FromArgb(120, 124, 130)))
-                    using (Pen ring = new Pen(Color.FromArgb(5, 26, 21), Math.Max(1f, S(1.5f))))
-                    { g.FillEllipse(db, ar.Right - d, ar.Bottom - d, d, d); g.DrawEllipse(ring, ar.Right - d, ar.Bottom - d, d, d); }
-                }
-                y += S(28) + S(10);
-                // последние сообщения
-                if (msgsH > 0)
-                {
-                    using (SolidBrush nick = new SolidBrush(Color.FromArgb(210, Palette.Gold)))
-                    using (SolidBrush txt = new SolidBrush(Palette.Ivory))
-                        foreach (ChatMsg m in msgs)
-                        {
-                            // ник — отдельной строкой, под ним фраза целиком (в узкой карточке длинная фраза иначе обрезается)
-                            g.DrawString(m.Nick ?? "?", fc, nick, new RectangleF(x0 + pad, y, inner, S(16)), nf);
-                            g.DrawString(m.Display, fm, txt, new RectangleF(x0 + pad, y + S(15), inner, S(22)), nf);
-                            y += lineH;
-                        }
-                    y += S(10);
-                }
-                // «Позвать на намаз» — главная кнопка
-                Rectangle call = new Rectangle(x0 + pad, (int)y, inner, S(46));
-                int alpha = Chat.Connected ? 255 : 120;
-                using (GraphicsPath p = Layered.Round(call, S(23)))
-                {
-                    using (SolidBrush b = new SolidBrush(Color.FromArgb(alpha, Palette.Gold))) g.FillPath(b, p);
-                }
-                using (SolidBrush tb = new SolidBrush(Palette.EmeraldDark))
-                using (StringFormat cf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-                    g.DrawString(ChatT.T("callPrayer"), fb, tb, call, cf);
-                chatHits.Add(new KeyValuePair<Rectangle, string>(call, "preset:together"));
-                y += S(46) + S(10);
-                // остальные быстрые фразы
-                for (int i = 0; i < ids.Count; i++)
-                {
-                    Rectangle cr = new Rectangle(x0 + pad + chips[i].X, (int)y + chips[i].Y, chips[i].Width, chips[i].Height);
-                    using (GraphicsPath p = Layered.Round(cr, cr.Height / 2))
-                    using (Pen pen = new Pen(Color.FromArgb(Chat.Connected ? 190 : 90, Palette.Gold), Math.Max(1f, S(1.1f))))
-                        g.DrawPath(pen, p);
-                    using (SolidBrush tb = new SolidBrush(Color.FromArgb(Chat.Connected ? 255 : 140, Palette.Ivory)))
-                    using (StringFormat cf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-                        g.DrawString(ChatT.Preset(ids[i], ids[i]), fc, tb, cr, cf);
-                    chatHits.Add(new KeyValuePair<Rectangle, string>(cr, "preset:" + ids[i]));
-                }
-            }
-        }
-
-        bool ChatClick(Point pt)
-        {
-            foreach (KeyValuePair<Rectangle, string> h in chatHits)
-            {
-                if (!h.Key.Contains(pt)) continue;
-                if (h.Value == "group") { chatGi = (chatGi + 1) % Math.Max(1, Chat.Groups.Count); return true; }
-                if (h.Value.StartsWith("preset:") && chatGi < Chat.Groups.Count)
-                {
-                    chatFlashAt = DateTime.Now;
-                    if (!Chat.Connected) { chatFlash = ChatT.T("notConn"); chatFlashErr = true; }
-                    else { Chat.SendPreset(Chat.Groups[chatGi].Code, h.Value.Substring(7)); chatFlash = "\u2713"; chatFlashErr = false; }
-                }
-                return true;
-            }
-            return false;
-        }
-
-        protected override void OnMouseDown(MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Left && ChatClick(e.Location)) { base.OnMouseDown(e); return; }
-            if (holdBtn.Contains(e.Location)) holdStart = DateTime.Now;
-            base.OnMouseDown(e);
-        }
-        protected override void OnMouseMove(MouseEventArgs e)
-        {
-            bool over = false;
-            foreach (KeyValuePair<Rectangle, string> h in chatHits) if (h.Key.Contains(e.Location)) { over = true; break; }
-            Cursor = over || holdBtn.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
-            base.OnMouseMove(e);
-        }
+        protected override void OnMouseDown(MouseEventArgs e) { if (holdBtn.Contains(e.Location)) holdStart = DateTime.Now; base.OnMouseDown(e); }
+        protected override void OnMouseMove(MouseEventArgs e) { Cursor = holdBtn.Contains(e.Location) ? Cursors.Hand : Cursors.Default; base.OnMouseMove(e); }
         protected override void OnMouseUp(MouseEventArgs e) { holdStart = DateTime.MinValue; base.OnMouseUp(e); }
         protected override void OnKeyDown(KeyEventArgs e) { if (e.KeyCode == Keys.Escape && holdStart == DateTime.MinValue) holdStart = DateTime.Now; e.Handled = true; base.OnKeyDown(e); }
         protected override void OnKeyUp(KeyEventArgs e) { if (e.KeyCode == Keys.Escape) holdStart = DateTime.MinValue; base.OnKeyUp(e); }
