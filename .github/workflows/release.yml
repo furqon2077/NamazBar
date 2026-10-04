@@ -1,21 +1,32 @@
-# Выпуск версии: git tag v1.5.0 && git push origin v1.5.0
+# Выпуск версии. Два способа:
+#   1) git tag v1.5.0 && git push origin v1.5.0
+#   2) Actions -> Release -> Run workflow -> version = 1.5.0 (тег создастся сам на выбранной ветке)
 # Собирает установщик Windows и .dmg для Mac и публикует их в GitHub Releases.
-# Запуск вручную (workflow_dispatch) только проверяет сборки, релиз не создаётся.
+# Запуск вручную с пустой версией только проверяет сборки, релиз не создаётся.
 name: Release
 
 on:
   push:
     tags: [ "v*" ]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Версия релиза, например 1.5.0 (пусто = только проверить сборки)"
+        required: false
+        default: ""
 
 jobs:
   windows:
     uses: ./.github/workflows/windows.yml
+    with:
+      version: ${{ inputs.version }}
   mac:
     uses: ./.github/workflows/mac.yml
+    with:
+      version: ${{ inputs.version }}
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
     needs: [ windows, mac ]
     runs-on: ubuntu-latest
     permissions:
@@ -32,9 +43,11 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          mv dist/NamazBar.exe "dist/NamazBar-${TAG#v}-windows.exe"
+          if [[ -n "$RELEASE_VERSION" ]]; then VER="${RELEASE_VERSION#v}"; else VER="${GITHUB_REF_NAME#v}"; fi
+          TAG="v$VER"
+          mv dist/NamazBar.exe "dist/NamazBar-$VER-windows.exe"
           cp mac-artifact/*.dmg dist/
           ls -l dist
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "NamazBar ${TAG#v}" --generate-notes
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "NamazBar $VER" --generate-notes
