@@ -130,38 +130,47 @@ struct BreakView: View {
             ZStack {
                 LinearGradient(colors: [.pEmeraldDark, .pLapisDark], startPoint: .top, endPoint: .bottom)
                 Girih(step: 96, color: Color.pGold.opacity(0.06))
-                VStack(spacing: 22) {
-                    Spacer()
-                    Text("\(Lang.T("breakT")) · \(prayer) · \(time)").font(Font.ns(Palette.serif(34))).foregroundColor(.pGold)
-                    ZStack {
-                        Star8().fill(Color.pEmerald.opacity(0.18))
-                        Star8().stroke(Color.pGold.opacity(0.5), lineWidth: 1.4)
-                        Circle().stroke(Color.pGold.opacity(0.3), lineWidth: 1).padding(40)
-                        Text(String(format: "%02d:%02d", left / 60, left % 60))
-                            .font(Font.ns(Palette.serif(min(110, geo.size.height * 0.11)))).foregroundColor(.pIvory).monospacedDigit()
+                HStack(spacing: 0) {
+                    // слева — компактная информация
+                    VStack(spacing: 14) {
+                        Spacer()
+                        Text("\(Lang.T("breakT")) · \(prayer) · \(time)").font(Font.ns(Palette.serif(22))).foregroundColor(.pGold)
+                        ZStack {
+                            Star8().fill(Color.pEmerald.opacity(0.18))
+                            Star8().stroke(Color.pGold.opacity(0.5), lineWidth: 1.2)
+                            Circle().stroke(Color.pGold.opacity(0.3), lineWidth: 1).padding(26)
+                            Text(String(format: "%02d:%02d", left / 60, left % 60))
+                                .font(Font.ns(Palette.serif(min(60, geo.size.height * 0.07)))).foregroundColor(.pIvory).monospacedDigit()
+                        }
+                        .frame(width: min(240, geo.size.height * 0.26), height: min(240, geo.size.height * 0.26))
+                        GoldDivider().frame(width: 300)
+                        VStack(spacing: 3) {
+                            Text(Lang.T("ayah")).font(Font.ns(Palette.serif(14, bold: false, italic: true))).foregroundColor(.pIvory)
+                            Text(Lang.T("ayahRef")).font(Font.ns(Palette.sans(11))).foregroundColor(.pGold.opacity(0.85))
+                        }
+                        VStack(spacing: 3) {
+                            Text(Lang.T("hadith")).font(Font.ns(Palette.serif(14, bold: false, italic: true))).foregroundColor(.pIvory)
+                            Text(Lang.T("hadRef")).font(Font.ns(Palette.sans(11))).foregroundColor(.pGold.opacity(0.85))
+                        }
+                        Spacer()
+                        holdButton.padding(.bottom, 50)
                     }
-                    .frame(width: min(360, geo.size.height * 0.36), height: min(360, geo.size.height * 0.36))
-                    GoldDivider().frame(width: 440)
-                    VStack(spacing: 4) {
-                        Text(Lang.T("ayah")).font(Font.ns(Palette.serif(20, bold: false, italic: true))).foregroundColor(.pIvory)
-                        Text(Lang.T("ayahRef")).font(Font.ns(Palette.sans(13))).foregroundColor(.pGold.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 36)
+                    .frame(width: geo.size.width / 2)
+                    // справа — часы и чат
+                    VStack(alignment: .trailing, spacing: 14) {
+                        VStack(alignment: .trailing, spacing: 0) {
+                            Text(Date(), format: .dateTime.hour().minute()).font(Font.ns(Palette.serif(34))).foregroundColor(.pIvory).monospacedDigit()
+                            Text(Date(), format: .dateTime.weekday(.wide).day().month(.wide)).font(Font.ns(Palette.sans(12))).foregroundColor(Color.pGold.opacity(0.85))
+                        }
+                        BreakChatPanel()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(.bottom, 40)
                     }
-                    VStack(spacing: 4) {
-                        Text(Lang.T("hadith")).font(Font.ns(Palette.serif(20, bold: false, italic: true))).foregroundColor(.pIvory)
-                        Text(Lang.T("hadRef")).font(Font.ns(Palette.sans(13))).foregroundColor(.pGold.opacity(0.85))
-                    }
-                    .frame(maxWidth: 900)
-                    Spacer()
-                    // последнее сообщение из группового чата — видно и во время перерыва (если групп нет; иначе есть карточка справа вверху)
-                    if ChatHub.shared.groups.isEmpty, let line = ChatHub.shared.recentLine() {
-                        Text(line).font(Font.ns(Palette.sans(15))).foregroundColor(.pGold).lineLimit(2).frame(maxWidth: 800)
-                    }
-                    holdButton.padding(.bottom, 50)
+                    .padding(.top, 24).padding(.trailing, 40).padding(.leading, 10)
+                    .frame(width: geo.size.width / 2)
                 }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-                // чат на экране перерыва: справа вверху, где виднее всего — позвать на намаз одним нажатием
-                BreakChatCard().padding(28).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
     }
@@ -228,72 +237,103 @@ enum BreakScreen {
 
 
 // ───────── Чат на экране перерыва ─────────
-struct BreakChatCard: View {
+// Правая половина: вкладки групп, пузыри сообщений, большая кнопка «Позвать на намаз» и быстрые фразы (как в окне чата)
+struct BreakChatPanel: View {
     @ObservedObject var hub = ChatHub.shared
     @State private var gi = 0
     @State private var flash: String?
     @State private var flashErr = false
 
     var body: some View {
-        if hub.groups.isEmpty || hub.nick.isEmpty || hub.server.isEmpty { EmptyView() } else { card }
+        if hub.groups.isEmpty || hub.nick.isEmpty || hub.server.isEmpty {
+            if let line = hub.recentLine() {
+                Text(line).font(Font.ns(Palette.sans(14))).foregroundColor(.pGold).multilineTextAlignment(.trailing)
+                Spacer()
+            } else { Spacer() }
+        } else { panel }
     }
 
+    var group: ChatGroup { hub.groups[min(gi, hub.groups.count - 1)] }
+
     func send(_ id: String) {
-        let g = hub.groups[min(gi, hub.groups.count - 1)]
-        if hub.connected { hub.sendPreset(g.code, id); flash = "✓"; flashErr = false }
+        if hub.connected { hub.sendPreset(group.code, id); flash = "✓  " + ChatT.preset(id, id); flashErr = false }
         else { flash = ChatT.T("notConn"); flashErr = true }
         let mark = flash
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { if flash == mark { flash = nil } }
     }
 
-    var card: some View {
-        let g = hub.groups[min(gi, hub.groups.count - 1)]
-        let members = g.members.sorted { $0.online && !$1.online }
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Text("\(g.name) · \(g.onlineCount)/\(g.members.count)")
-                    .font(Font.ns(Palette.sans(13, weight: .bold))).foregroundColor(.pGold).lineLimit(1)
-                if hub.groups.count > 1 { Image(systemName: "chevron.down").font(.system(size: 10)).foregroundColor(.pGold) }
-                Spacer()
-                if let f = flash {
-                    Text(f).font(Font.ns(Palette.sans(12))).foregroundColor(flashErr ? Color(red: 0.95, green: 0.55, blue: 0.47) : Color(red: 0.47, green: 0.86, blue: 0.59)).lineLimit(1)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { if hub.groups.count > 1 { gi = (gi + 1) % hub.groups.count } }
-            HStack(spacing: 4) {
-                ForEach(Array(members.prefix(8))) { m in
-                    AvatarView(userId: m.userId, nick: m.nick, avatar: m.avatar, size: 26)
-                        .opacity(m.online ? 1 : 0.45)
-                        .overlay(alignment: .bottomTrailing) {
-                            Circle().fill(m.online ? Color.green : Color.gray).frame(width: 8, height: 8)
-                        }
-                }
-            }
-            ForEach(Array(g.messages.suffix(3))) { m in
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(m.nick).font(Font.ns(Palette.sans(11))).foregroundColor(Color.pGold.opacity(0.85)).lineLimit(1)
-                    Text(m.display).font(Font.ns(Palette.sans(13))).foregroundColor(.pIvory).lineLimit(2)
-                }
-            }
-            Button(action: { send("together") }) {
-                Text(ChatT.T("callPrayer")).font(Font.ns(Palette.sans(14, weight: .bold))).foregroundColor(.pEmeraldDark)
-                    .frame(maxWidth: .infinity).padding(.vertical, 11)
-                    .background(Capsule().fill(Color.pGold.opacity(hub.connected ? 1 : 0.45)))
-            }.buttonStyle(.plain)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 6)], alignment: .leading, spacing: 6) {
-                ForEach(ChatT.presetIds.filter { $0 != "together" }, id: \.self) { id in
-                    Button(action: { send(id) }) {
-                        Text(ChatT.preset(id, id)).font(Font.ns(Palette.sans(12, weight: .medium))).foregroundColor(.pIvory)
-                            .lineLimit(1).padding(.horizontal, 10).padding(.vertical, 6).frame(maxWidth: .infinity)
-                            .overlay(Capsule().stroke(Color.pGold.opacity(hub.connected ? 0.75 : 0.35), lineWidth: 1))
+    var panel: some View {
+        let g = group
+        return VStack(spacing: 0) {
+            // вкладки групп
+            HStack(spacing: 18) {
+                ForEach(Array(hub.groups.enumerated()), id: \.offset) { i, x in
+                    Button(action: { gi = i }) {
+                        Text("\(x.name) · \(x.onlineCount)/\(x.members.count)")
+                            .font(Font.ns(Palette.sans(13, weight: .medium)))
+                            .foregroundColor(i == min(gi, hub.groups.count - 1) ? Color.pGold : Theme.dim)
+                            .padding(.vertical, 10)
+                            .overlay(alignment: .bottom) {
+                                Rectangle().fill(i == min(gi, hub.groups.count - 1) ? Color.pGold : Color.clear).frame(height: 2)
+                            }
                     }.buttonStyle(.plain)
                 }
+                Spacer()
             }
+            .padding(.horizontal, 16)
+            .background(Theme.panel)
+            // сообщения
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(g.messages) { m in
+                            let mine = m.from == hub.userId
+                            HStack(alignment: .bottom, spacing: 8) {
+                                if mine { Spacer(minLength: 40) }
+                                else { AvatarView(userId: m.from, nick: m.nick, avatar: g.members.first { $0.userId == m.from }?.avatar, size: 26) }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    if !mine { Text(m.nick).font(Font.ns(Palette.sans(11))).foregroundColor(Theme.nickColor(m.from)) }
+                                    Text(m.display).font(Font.ns(Palette.sans(14))).foregroundColor(Theme.text)
+                                }
+                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .background(RoundedRectangle(cornerRadius: 14).fill(mine ? Color.pEmerald.opacity(0.55) : Theme.raised))
+                                if !mine { Spacer(minLength: 40) }
+                            }
+                            .id(m.id)
+                        }
+                    }
+                    .padding(14)
+                }
+                .onChange(of: g.messages.count) { _ in if let last = g.messages.last { proxy.scrollTo(last.id, anchor: .bottom) } }
+                .onAppear { if let last = g.messages.last { proxy.scrollTo(last.id, anchor: .bottom) } }
+            }
+            if let f = flash {
+                Text(f).font(Font.ns(Palette.sans(12)))
+                    .foregroundColor(flashErr ? Color(red: 0.95, green: 0.55, blue: 0.47) : Color(red: 0.47, green: 0.86, blue: 0.59))
+                    .padding(.bottom, 6)
+            }
+            // «Позвать на намаз» и быстрые фразы
+            VStack(spacing: 10) {
+                Button(action: { send("together") }) {
+                    Text(ChatT.T("callPrayer")).font(Font.ns(Palette.sans(15, weight: .bold))).foregroundColor(.pEmeraldDark)
+                        .frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .background(Capsule().fill(Color.pGold.opacity(hub.connected ? 1 : 0.45)))
+                }.buttonStyle(.plain)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 6)], alignment: .leading, spacing: 6) {
+                    ForEach(ChatT.presetIds.filter { $0 != "together" }, id: \.self) { id in
+                        Button(action: { send(id) }) {
+                            Text(ChatT.preset(id, id)).font(Font.ns(Palette.sans(12, weight: .medium))).foregroundColor(Theme.text)
+                                .lineLimit(1).padding(.horizontal, 10).padding(.vertical, 6).frame(maxWidth: .infinity)
+                                .overlay(Capsule().stroke(Color.pGold.opacity(hub.connected ? 0.7 : 0.3), lineWidth: 1))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(14)
+            .background(Theme.panel)
         }
-        .padding(14)
-        .frame(width: 320)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.02, green: 0.10, blue: 0.08).opacity(0.88)))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.pGold.opacity(0.65), lineWidth: 1))
+        .background(Theme.bg.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.pGold.opacity(0.5), lineWidth: 1))
     }
 }
