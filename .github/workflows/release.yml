@@ -50,4 +50,10 @@ jobs:
           mv dist/NamazBar.exe "dist/NamazBar-$VER-windows.exe"
           cp mac-artifact/*.dmg dist/
           ls -l dist
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "NamazBar $VER" --generate-notes
+          # повторный запуск безопасен: если релиз уже есть — заменяем файлы, иначе создаём
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG exists - replacing its files"
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "NamazBar $VER" --generate-notes
+          fi
