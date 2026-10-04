@@ -13,17 +13,12 @@ enum Updater {
         let v = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
         return v.hasPrefix("__") ? "dev" : v
     }
-    static var autoOn: Bool {
-        get { UserDefaults.standard.object(forKey: "updAuto") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "updAuto") }
-    }
 
     static let t: [String: [String]] = [
         "version":  ["Versiya %@", "Версия %@", "Версия %@", "Version %@"],
         "avail":    ["%@ ga yangilash", "%@ га янгилаш", "Обновить до %@", "Update to %@"],
         "check":    ["Yangilanishni tekshirish", "Янгиланишни текшириш", "Проверить обновления", "Check for updates"],
         "checking": ["Tekshirilmoqda…", "Текширилмоқда…", "Проверка…", "Checking…"],
-        "auto":     ["Avtomatik tekshirish", "Автоматик текшириш", "Проверять автоматически", "Check automatically"],
         "latest":   ["NamazBar %@ - eng yangi versiya", "NamazBar %@ - энг янги версия", "У вас последняя версия: NamazBar %@", "NamazBar %@ is the latest version"],
         "nonet":    ["GitHub bilan aloqa yo'q", "GitHub билан алоқа йўқ", "Не удалось проверить обновления", "Could not check for updates"],
         "title":    ["Yangi versiya mavjud: %@", "Янги версия мавжуд: %@", "Доступна новая версия: %@", "A new version is available: %@"],
@@ -52,7 +47,7 @@ enum Updater {
         return false
     }
 
-    /// Проверка при запуске (через 20 секунд) и затем раз в час: реально ходим на GitHub не чаще раза в 6 часов
+    /// Тихая проверка при запуске (через 20 секунд); на GitHub ходим не чаще раза в 12 часов, вручную — из меню «Версия»
     static func start() {
         timer = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { _ in
             tick()
@@ -61,7 +56,7 @@ enum Updater {
     }
     static func tick() {
         let last = UserDefaults.standard.double(forKey: "updLast")
-        if autoOn && Date().timeIntervalSince1970 - last >= 6 * 3600 { check(manual: false) }
+        if Date().timeIntervalSince1970 - last >= 12 * 3600 { check(manual: false) }   // не чаще двух раз в сутки
     }
 
     static func check(manual: Bool) {
@@ -120,6 +115,8 @@ enum Updater {
     static func apply(_ d: [String: Any]?, _ err: String?, _ manual: Bool) {
         checking = false
         guard let d = d, let tag = d["tag_name"] as? String else {
+            // неудачная попытка тоже считается: повтор не раньше чем через час (иначе общий адрес офиса быстро упирается в лимит GitHub)
+            UserDefaults.standard.set(Date().timeIntervalSince1970 - 11 * 3600, forKey: "updLast")
             onChange()
             if manual { ChatToast.info(err ?? T("nonet")) }
             return

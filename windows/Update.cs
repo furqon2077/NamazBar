@@ -30,7 +30,6 @@ namespace NamazBar
             { "updAvail",    new[] { "{0} ga yangilash", "{0} га янгилаш", "Обновить до {0}", "Update to {0}" } },
             { "updCheck",    new[] { "Yangilanishni tekshirish", "Янгиланишни текшириш", "Проверить обновления", "Check for updates" } },
             { "updChecking", new[] { "Tekshirilmoqda…", "Текширилмоқда…", "Проверка…", "Checking…" } },
-            { "updAuto",     new[] { "Avtomatik tekshirish", "Автоматик текшириш", "Проверять автоматически", "Check automatically" } },
             { "updUpToDate", new[] { "NamazBar {0} - eng yangi versiya", "NamazBar {0} - энг янги версия", "У вас последняя версия: NamazBar {0}", "NamazBar {0} is the latest version" } },
             { "updNoNet",    new[] { "GitHub bilan aloqa yo'q", "GitHub билан алоқа йўқ", "Не удалось проверить обновления", "Could not check for updates" } },
             { "updTitle",    new[] { "Yangi versiya mavjud", "Янги версия мавжуд", "Доступна новая версия", "A new version is available" } },
@@ -52,11 +51,10 @@ namespace NamazBar
             return Version.TryParse(s, out v) ? v : null;
         }
         public static Version CurrentVer() { return Parse(Build.Version) ?? new Version(0, 0, 0); }
-        public static bool AutoOn { get { return Store.Get("updAuto", "1") != "0"; } }
         static void Fire() { Action a = Changed; if (a != null) a(); }
         static void Post(Action a) { sync.Post(delegate { try { a(); } catch (Exception ex) { Store.Log("update: " + ex); } }, null); }
 
-        // Проверка при запуске (через 20 секунд) и затем раз в 6 часов, пока включена автопроверка
+        // Тихая проверка при запуске (через 20 секунд) и затем не чаще раза в 12 часов; вручную - из меню «Версия»
         public static void Start()
         {
             sync = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
@@ -65,8 +63,8 @@ namespace NamazBar
             {
                 timer.Interval = 3600000;
                 long last; long.TryParse(Store.Get("updLast", "0"), out last);
-                bool due = (DateTime.UtcNow - new DateTime(last, DateTimeKind.Utc)).TotalHours >= 6;
-                if (AutoOn && due) Check(false);
+                bool due = (DateTime.UtcNow - new DateTime(last, DateTimeKind.Utc)).TotalHours >= 12;   // не чаще двух раз в сутки
+                if (due) Check(false);
             };
             timer.Start();
         }
@@ -167,7 +165,10 @@ namespace NamazBar
             if (err == null && lv == null) err = "bad release data";
             if (err != null)
             {
-                Error = err; Fire();
+                Error = err;
+                // неудачная попытка тоже считается: повтор не раньше чем через час (иначе общий адрес офиса быстро упирается в лимит GitHub)
+                Store.Settings["updLast"] = DateTime.UtcNow.AddHours(-11).Ticks.ToString(); Store.Save();
+                Fire();
                 if (manual) ChatToast.Info(T("updNoNet") + ": " + err, true);
                 return;
             }
