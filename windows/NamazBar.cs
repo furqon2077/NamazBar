@@ -197,6 +197,9 @@ namespace NamazBar
         public override string ToString() { return Name; }
     }
 
+    // Номер версии подставляет CI при релизе (Actions -> Release); в обычной сборке — dev
+    static class Build { public const string Version = "dev"; /* @VERSION@ */ }
+
     static class Store
     {
         public static readonly string Dir = Path.Combine(
@@ -2407,6 +2410,8 @@ namespace NamazBar
             menu.Items.Add(sys);
 
             menu.Items.Add(new ToolStripSeparator());
+            ToolStripMenuItem ver = MenuUi.Sub("NamazBar " + Build.Version, null); ver.Enabled = false;
+            menu.Items.Add(ver);
             menu.Items.Add(MenuUi.Item(Lang.T("exit"), "\uE7E8", delegate { Application.Exit(); }));
         }
 

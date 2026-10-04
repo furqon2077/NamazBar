@@ -4,6 +4,7 @@
 # Собирает установщик Windows и .dmg для Mac и публикует их в GitHub Releases.
 # Запуск вручную с пустой версией только проверяет сборки, релиз не создаётся.
 name: Release
+run-name: Release ${{ inputs.version != '' && inputs.version || github.ref_name }}
 
 on:
   push:
