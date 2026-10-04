@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let alertMinutes = 10.0
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        Skin.load()
         Palette.registerFonts()
         let li = Lang.codes.firstIndex(of: Store.get("lang", "")) ?? Lang.systemIndex()
         Lang.cur = li
@@ -52,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         selectRegion(Store.int("regionId", 27))
         menu.delegate = self
         statusItem.menu = menu
+        ChatHooks.install()
         recalc()
         tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.onTick() }
         if Store.get("autostartSet", "") == "" { setAutostart(true); Store.set("autostartSet", "1") }
@@ -198,6 +200,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return i
     }
 
+    func withIconTop(_ it: NSMenuItem, _ symbol: String) -> NSMenuItem {
+        it.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil); return it
+    }
+
     func buildMenu() {
         menu.removeAllItems()
         // расписание на сегодня
@@ -210,8 +216,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(it)
         }
         menu.addItem(.separator())
+        menu.addItem(withIconTop(item(ChatT.T("menu"), #selector(openChat)), "bubble.left.and.bubble.right"))
+        menu.addItem(.separator())
 
-        let city = NSMenuItem(title: Lang.T("city"), action: nil, keyEquivalent: ""); city.submenu = NSMenu()
+        func sub(_ title: String, _ symbol: String?) -> NSMenuItem {
+            let m = NSMenuItem(title: title, action: nil, keyEquivalent: ""); m.submenu = NSMenu()
+            if let n = symbol { m.image = NSImage(systemSymbolName: n, accessibilityDescription: nil) }
+            return m
+        }
+        func withIcon(_ it: NSMenuItem, _ symbol: String) -> NSMenuItem {
+            it.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil); return it
+        }
+
+        let city = sub(Lang.T("city"), "mappin.and.ellipse")
         let other = NSMenu()
         for r in regions {
             let it = item(Lang.city(r), #selector(pickCity(_:)), r.id == region.id, r.id)
@@ -223,32 +240,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             city.submenu!.addItem(o)
         }
         menu.addItem(city)
-        let lang = NSMenuItem(title: Lang.T("lang"), action: nil, keyEquivalent: ""); lang.submenu = NSMenu()
+        let lang = sub(Lang.T("lang"), "globe")
         for (i, t) in Lang.titles.enumerated() { lang.submenu!.addItem(item(t, #selector(pickLang(_:)), i == Lang.cur, i)) }
         menu.addItem(lang)
-        menu.addItem(.separator())
 
+        // Оформление: цветовая тема, компактный вид
+        let look = sub(Lang.T("look"), "paintpalette")
+        let skins = sub(Lang.T("skin"), nil)
+        for sk in Skin.all {
+            let it = item(Skin.name(sk), #selector(pickSkin(_:)), sk.id == Skin.curId, sk.id)
+            it.image = Skin.swatch(sk)
+            skins.submenu!.addItem(it)
+        }
+        look.submenu!.addItem(skins)
+        look.submenu!.addItem(item(Lang.T("compact"), #selector(toggle(_:)), Store.get("compact", "0") == "1", "compact"))
+        menu.addItem(look)
+
+        // Уведомления: звук, карточка, перерыв
+        let notif = sub(Lang.T("alerts"), "bell")
+        notif.submenu!.addItem(item(Lang.T("sound"), #selector(toggle(_:)), Store.get("sound", "1") == "1", "sound"))
+        notif.submenu!.addItem(item(Lang.T("card"), #selector(toggle(_:)), Store.get("card", "1") == "1", "card"))
         let showCur = Store.int("showCurrent", 40)
         let sc = NSMenuItem(title: showCurrentTitle(), action: nil, keyEquivalent: ""); sc.submenu = NSMenu()
         for m in [15, 20, 30, 40, 60] { sc.submenu!.addItem(item(String(format: Lang.T("screen"), m), #selector(pickShowCurrent(_:)), m == showCur, m)) }
-        menu.addItem(sc)
-        menu.addItem(item(Lang.T("compact"), #selector(toggle(_:)), Store.get("compact", "0") == "1", "compact"))
-        menu.addItem(item(Lang.T("sound"), #selector(toggle(_:)), Store.get("sound", "1") == "1", "sound"))
-        menu.addItem(item(Lang.T("card"), #selector(toggle(_:)), Store.get("card", "1") == "1", "card"))
+        notif.submenu!.addItem(sc)
         let brk = NSMenuItem(title: Lang.T("breakM"), action: nil, keyEquivalent: ""); brk.submenu = NSMenu()
         for p in 0..<6 where Self.breakDefault[p] > 0 {
             let cur = Self.breakMinutes(p)
-            let sub = NSMenuItem(title: Lang.names[p] + " — " + String(format: Lang.T("screen"), cur), action: nil, keyEquivalent: "")
-            sub.submenu = NSMenu()
-            for m in Self.breakChoices { sub.submenu!.addItem(item(String(format: Lang.T("screen"), m), #selector(pickBreak(_:)), m == cur, [p, m])) }
-            brk.submenu!.addItem(sub)
+            let sb = NSMenuItem(title: Lang.names[p] + " — " + String(format: Lang.T("screen"), cur), action: nil, keyEquivalent: "")
+            sb.submenu = NSMenu()
+            for m in Self.breakChoices { sb.submenu!.addItem(item(String(format: Lang.T("screen"), m), #selector(pickBreak(_:)), m == cur, [p, m])) }
+            brk.submenu!.addItem(sb)
         }
-        menu.addItem(brk)
-        menu.addItem(item(Lang.T("test"), #selector(testCard)))
-        menu.addItem(item(Lang.T("autorun"), #selector(toggleAutostart), SMAppService.mainApp.status == .enabled))
-        menu.addItem(.separator())
-        menu.addItem(item(Lang.T("sync"), #selector(syncNow)))
-        menu.addItem(item(Lang.T("open"), #selector(openSite)))
+        notif.submenu!.addItem(brk)
+        notif.submenu!.addItem(.separator())
+        notif.submenu!.addItem(item(Lang.T("test"), #selector(testCard)))
+        menu.addItem(notif)
+
+        // Настройки: автозапуск, данные islom.uz
+        let sys = sub(Lang.T("system"), "gearshape")
+        sys.submenu!.addItem(item(Lang.T("autorun"), #selector(toggleAutostart), SMAppService.mainApp.status == .enabled))
+        sys.submenu!.addItem(.separator())
+        sys.submenu!.addItem(withIcon(item(Lang.T("sync"), #selector(syncNow)), "arrow.triangle.2.circlepath"))
+        sys.submenu!.addItem(withIcon(item(Lang.T("open"), #selector(openSite)), "link"))
+        menu.addItem(sys)
+
         menu.addItem(.separator())
         let quit = NSMenuItem(title: Lang.T("exit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
@@ -259,7 +295,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func pickCity(_ s: NSMenuItem) { if let id = s.representedObject as? Int { Store.set("regionId", "\(id)"); selectRegion(id); lastPeriod = Int.min; recalc() } }
-    @objc func pickLang(_ s: NSMenuItem) { if let i = s.representedObject as? Int { Lang.cur = i; Store.set("lang", Lang.codes[i]); recalc() } }
+    @objc func pickLang(_ s: NSMenuItem) { if let i = s.representedObject as? Int { Lang.cur = i; Store.set("lang", Lang.codes[i]); ChatWindow.reopen(); recalc() } }
+    @objc func openChat() { ChatWindow.show() }
+    @objc func pickSkin(_ s: NSMenuItem) {
+        guard let id = s.representedObject as? String else { return }
+        Skin.apply(id); Store.set("skin", id)
+        ChatWindow.reopen()   // SwiftUI-окно чата перерисовать в новых цветах
+        recalc()
+    }
     @objc func pickShowCurrent(_ s: NSMenuItem) { if let m = s.representedObject as? Int { Store.set("showCurrent", "\(m)"); recalc() } }
     @objc func pickBreak(_ s: NSMenuItem) { if let a = s.representedObject as? [Int] { Store.set("break\(a[0])", "\(a[1])") } }
     @objc func toggle(_ s: NSMenuItem) {

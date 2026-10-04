@@ -152,6 +152,10 @@ struct BreakView: View {
                     }
                     .frame(maxWidth: 900)
                     Spacer()
+                    // последнее сообщение из группового чата — видно и во время перерыва
+                    if let line = ChatHub.shared.recentLine() {
+                        Text(line).font(Font.ns(Palette.sans(15))).foregroundColor(.pGold).lineLimit(2).frame(maxWidth: 800)
+                    }
                     holdButton.padding(.bottom, 50)
                 }
                 .multilineTextAlignment(.center)
@@ -187,6 +191,7 @@ enum BreakScreen {
 
     static func show(prayer: String, time: String, minutes: Int) {
         if !windows.isEmpty { return }
+        ChatHub.shared.onBreakStart()   // позвать группу на совместный намаз (если включено в чате)
         let until = Date().addingTimeInterval(Double(minutes) * 60)
         model.holdStart = nil
         let hold: (Bool) -> Void = { down in

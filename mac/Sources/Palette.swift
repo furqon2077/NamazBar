@@ -6,15 +6,15 @@ enum Palette {
     static func rgb(_ r: Int, _ g: Int, _ b: Int, _ a: CGFloat = 1) -> NSColor {
         NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: a)
     }
-    static let emerald = rgb(18, 94, 68)
-    static let emeraldDark = rgb(10, 52, 40)
-    static let jade = rgb(70, 184, 140)
-    static let lapis = rgb(30, 56, 110)
-    static let lapisDark = rgb(14, 26, 54)
-    static let gold = rgb(222, 186, 98)
-    static let goldDeep = rgb(160, 118, 34)
-    static let ivory = rgb(246, 238, 218)
-    static let ink = rgb(40, 32, 20)
+    static var emerald = rgb(18, 94, 68)
+    static var emeraldDark = rgb(10, 52, 40)
+    static var jade = rgb(70, 184, 140)
+    static var lapis = rgb(30, 56, 110)
+    static var lapisDark = rgb(14, 26, 54)
+    static var gold = rgb(222, 186, 98)
+    static var goldDeep = rgb(160, 118, 34)
+    static var ivory = rgb(246, 238, 218)
+    static var ink = rgb(40, 32, 20)
     static let saffron = rgb(214, 132, 38)
     static let terracotta = rgb(196, 88, 50)
 
@@ -76,8 +76,12 @@ enum Palette {
 
 // Те же цвета для SwiftUI (карточка и экран перерыва)
 extension Color {
-    static let pEmerald = Color(nsColor: Palette.emerald), pEmeraldDark = Color(nsColor: Palette.emeraldDark), pJade = Color(nsColor: Palette.jade)
-    static let pLapisDark = Color(nsColor: Palette.lapisDark), pGold = Color(nsColor: Palette.gold), pIvory = Color(nsColor: Palette.ivory)
+    static var pEmerald: Color { Color(nsColor: Palette.emerald) }
+    static var pEmeraldDark: Color { Color(nsColor: Palette.emeraldDark) }
+    static var pJade: Color { Color(nsColor: Palette.jade) }
+    static var pLapisDark: Color { Color(nsColor: Palette.lapisDark) }
+    static var pGold: Color { Color(nsColor: Palette.gold) }
+    static var pIvory: Color { Color(nsColor: Palette.ivory) }
 }
 
 /// Восьмиконечная звезда для SwiftUI

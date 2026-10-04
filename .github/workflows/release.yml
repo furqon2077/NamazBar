@@ -1,0 +1,40 @@
+# Выпуск версии: git tag v1.5.0 && git push origin v1.5.0
+# Собирает установщик Windows и .dmg для Mac и публикует их в GitHub Releases.
+# Запуск вручную (workflow_dispatch) только проверяет сборки, релиз не создаётся.
+name: Release
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    uses: ./.github/workflows/windows.yml
+  mac:
+    uses: ./.github/workflows/mac.yml
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ windows, mac ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: NamazBar-windows
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: NamazBar-mac
+          path: mac-artifact
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mv dist/NamazBar.exe "dist/NamazBar-${TAG#v}-windows.exe"
+          cp mac-artifact/*.dmg dist/
+          ls -l dist
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "NamazBar ${TAG#v}" --generate-notes

@@ -28,7 +28,7 @@ rem makeappx skips empty folders, but the manifest's PublicFolder must exist in 
 echo NamazBar widget> pkg\Public\readme.txt
 
 set COMMON=/nologo /codepage:65001 /optimize+ /target:winexe /win32manifest:app.manifest ^
-  /r:System.Windows.Forms.dll /r:System.Drawing.dll ^
+  /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll ^
   /r:"%NET%\System.Runtime.dll" /r:"%NET%\System.Runtime.WindowsRuntime.dll" /r:"%WINMD%" ^
   /resource:..\fonts\GoogleSans-400.ttf,GS400.ttf /resource:..\fonts\GoogleSans-500.ttf,GS500.ttf ^
   /resource:..\fonts\GoogleSans-700.ttf,GS700.ttf /resource:..\fonts\GoogleSansFlex-900.ttf,GSF900.ttf
@@ -37,7 +37,7 @@ rem 1. widget provider; it also draws the package images and NamazBar.ico
 set ICON=
 if exist "%WAR%\Microsoft.Windows.Widgets.winmd" (
   "%CSC%" %COMMON% /platform:x64 /main:NamazBar.WidgetProgram /out:pkg\NamazWidget.exe ^
-    /r:"%WAR%\Microsoft.Windows.Widgets.winmd" NamazBar.cs NamazWidget.cs
+    /r:"%WAR%\Microsoft.Windows.Widgets.winmd" NamazBar.cs NamazWidget.cs Chat.cs Skins.cs
   if errorlevel 1 (echo Build FAILED: NamazWidget.exe & exit /b 1)
   pkg\NamazWidget.exe /assets pkg\Assets
   if errorlevel 1 (echo Build FAILED: widget images & exit /b 1)
@@ -45,7 +45,7 @@ if exist "%WAR%\Microsoft.Windows.Widgets.winmd" (
 ) else echo WARNING: Windows App Runtime 1.8 x64 not found - widget skipped
 
 rem 2. taskbar utility (works both from the package and as a portable exe)
-"%CSC%" %COMMON% /platform:anycpu %ICON% /out:pkg\NamazBar.exe NamazBar.cs
+"%CSC%" %COMMON% /platform:anycpu %ICON% /out:pkg\NamazBar.exe NamazBar.cs Chat.cs Skins.cs
 if errorlevel 1 (echo Build FAILED: NamazBar.exe & if /i not "%~1"=="/nostart" pause & exit /b 1)
 copy /y AppxManifest.xml pkg\AppxManifest.xml >nul
 echo Build OK: pkg\
@@ -71,6 +71,6 @@ if errorlevel 1 (echo Pack FAILED & exit /b 1)
 if not exist release mkdir release
 "%CSC%" %COMMON% /platform:anycpu %ICON% /out:release\NamazBar.exe ^
   /resource:dist\NamazBar.msix,NamazBar.msix /resource:dist\NamazBar.cer,NamazBar.cer ^
-  /resource:AppxManifest.xml,NamazBar.AppxManifest.xml NamazBar.cs
+  /resource:AppxManifest.xml,NamazBar.AppxManifest.xml NamazBar.cs Chat.cs Skins.cs
 if errorlevel 1 (echo Build FAILED: release\NamazBar.exe & exit /b 1)
 echo Release OK: release\NamazBar.exe

@@ -1,0 +1,15 @@
+# Free-tier deploy of the chat relay on Render (https://render.com): New > Blueprint > pick this repo.
+services:
+  - type: web
+    name: namazbar-relay
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/index.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: TOKEN_SECRET
+        generateValue: true
+      - key: ALLOW_TEXT
+        value: "0"

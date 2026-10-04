@@ -1,0 +1,63 @@
+# Сборка NamazBar для Windows на сервере GitHub (Windows не нужен).
+# Результат — артефакт «NamazBar-windows»: один установщик NamazBar.exe (как windows\build.bat /pack).
+# Подпись пакета: если задан секрет SIGN_PFX_BASE64 (+ SIGN_PFX_PASSWORD) — берётся ваш постоянный сертификат CN=NamazBar,
+# иначе создаётся одноразовый (установка работает, но обновление поверх старой версии потребует переустановки).
+name: Windows build
+
+on:
+  push:
+    branches: [ "**" ]   # теги собирает release.yml
+    paths: [ "windows/**", "fonts/**", ".github/workflows/windows.yml" ]
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Windows App Runtime 1.8 (needed to compile the lock-screen widget)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://aka.ms/windowsappsdk/1.8/latest/windowsappruntimeinstall-x64.exe -OutFile "$env:RUNNER_TEMP\war.exe"
+          Start-Process "$env:RUNNER_TEMP\war.exe" -ArgumentList '--quiet' -Wait
+          $p = Get-AppxPackage -Name Microsoft.WindowsAppRuntime.1.8 | Where-Object Architecture -eq 'X64' | Select-Object -Last 1
+          if (-not $p) { throw 'Windows App Runtime 1.8 did not install' }
+          Write-Host "Runtime: $($p.Version) at $($p.InstallLocation)"
+          if (-not (Test-Path "$($p.InstallLocation)\Microsoft.Windows.Widgets.winmd")) { throw 'Microsoft.Windows.Widgets.winmd not found' }
+
+      - name: Signing certificate
+        shell: pwsh
+        env:
+          SIGN_PFX: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PWD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          if (-not $env:SIGN_PFX) { Write-Host 'No SIGN_PFX_BASE64 secret: pack.ps1 will create a one-off certificate'; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX))
+          Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:SIGN_PWD -AsPlainText -Force) | Out-Null
+          Remove-Item $pfx
+
+      - name: Package version from the release tag (vX.Y.Z -> X.Y.Z.0)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $v = '${{ github.ref_name }}'.TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Tag must look like v1.2.3, got $v" }
+          $f = 'windows/AppxManifest.xml'
+          $x = [IO.File]::ReadAllText($f)
+          $x = [regex]::Replace($x, '(<Identity [^>]*Version=")[^"]*(")', "`${1}$v.0`$2")
+          [IO.File]::WriteAllText($f, $x, (New-Object Text.UTF8Encoding $true))
+          Select-String -Path $f -Pattern '<Identity'
+
+      - name: Build installer (build.bat /pack)
+        shell: cmd
+        working-directory: windows
+        run: build.bat /pack < nul
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NamazBar-windows
+          path: windows/release/NamazBar.exe
+          if-no-files-found: error

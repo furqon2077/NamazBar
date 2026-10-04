@@ -1,0 +1,17 @@
+{
+  "name": "namazbar-relay",
+  "version": "0.1.0",
+  "description": "Group-chat relay for NamazBar (Mac + Windows clients)",
+  "private": true,
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

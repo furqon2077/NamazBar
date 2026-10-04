@@ -9,3 +9,5 @@ mac/out/
 *.log
 NamazBarTest*
 Claude outputs/
+
+server/node_modules/
