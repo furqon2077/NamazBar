@@ -99,6 +99,37 @@ final class ChatHub: ObservableObject {
     var windowVisible = false
     var activeCode: String?
 
+    // История живёт недолго: через 20 минут после времени каждого намаза сообщения стираются
+    static let clearAfterMinutes = 20.0
+    var prayerStarts: (() -> [Date])?      // начала намазов (вчера и сегодня), задаёт приложение
+    private var lastCutoff = Date.distantPast
+
+    /// Последний уже наступивший момент «начало намаза + 20 минут»
+    func currentCutoff() -> Date {
+        let now = Date()
+        var best = Date.distantPast
+        for p in prayerStarts?() ?? [] {
+            let c = p.addingTimeInterval(Self.clearAfterMinutes * 60)
+            if c <= now && c > best { best = c }
+        }
+        return best
+    }
+
+    /// Вызывается каждую секунду: сменилась граница — стираем историю у себя и просим сервер стереть у всех
+    func pruneTick() {
+        let cut = currentCutoff()
+        guard cut > Date.distantPast, cut > lastCutoff else { return }
+        lastCutoff = cut
+        for i in groups.indices { groups[i].messages.removeAll { $0.time <= cut } }
+        sendClears(cut)
+    }
+
+    private func sendClears(_ cut: Date) {
+        guard connected, cut > Date.distantPast, Date().timeIntervalSince(cut) < 23 * 3600 else { return }   // сервер принимает границу не старше суток
+        let ms = Int64(cut.timeIntervalSince1970 * 1000)
+        for g in groups { send(["type": "clearHistory", "code": g.code, "before": ms]) }
+    }
+
     var onIncoming: ((ChatGroup, ChatMsg) -> Void)?
     var onJoinRequest: ((JoinReq) -> Void)?
     var onSettled: ((String) -> Void)?
@@ -309,6 +340,8 @@ final class ChatHub: ObservableObject {
         grp.name = name
         grp.members = (g["members"] as? [[String: Any]] ?? []).map { member($0) }
         if grp.messages.isEmpty { grp.messages = (g["history"] as? [[String: Any]] ?? []).map { message($0, defaultCode: code) } }
+        let cut = currentCutoff()
+        if cut > Date.distantPast { grp.messages.removeAll { $0.time <= cut } }
         if let i = groups.firstIndex(where: { $0.code == code }) { groups[i] = grp } else { groups.append(grp) }
         return code
     }
@@ -329,6 +362,13 @@ final class ChatHub: ObservableObject {
             groups.removeAll { !keep.contains($0.code) }
             for c in Array(tokens.keys) where !keep.contains(c) { tokens[c] = nil; names[c] = nil }
             saveGroups()
+            sendClears(currentCutoff())   // сервер мог хранить историю до границы
+        case "historyCleared":
+            if let code = d["code"] as? String, let ms = (d["before"] as? NSNumber)?.doubleValue,
+               let i = groups.firstIndex(where: { $0.code == code }) {
+                let cut = Date(timeIntervalSince1970: ms / 1000)
+                groups[i].messages.removeAll { $0.time <= cut }
+            }
         case "groupCreated", "joined":
             guard let g = d["group"] as? [String: Any] else { break }
             let code = apply(g)
@@ -364,7 +404,9 @@ final class ChatHub: ObservableObject {
                 groups.removeAll { $0.code == code }; tokens[code] = nil; names[code] = nil; saveGroups()
                 if activeCode == code { activeCode = nil }
             }
-        case "error": setStatus(d["message"] as? String ?? "error", true)
+        case "error":
+            let em = d["message"] as? String ?? "error"
+            if !em.contains("within the last 24 hours") { setStatus(em, true) }   // расхождение часов при очистке — не показываем
         default: break
         }
     }

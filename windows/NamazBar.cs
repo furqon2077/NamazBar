@@ -1584,6 +1584,13 @@ namespace NamazBar
             tip = new ToolTip(); tip.InitialDelay = 400; tip.AutoPopDelay = 30000;
             BuildMenu();
             ChatHooks.Init(delegate { return WidgetScreenRect(); });
+            Chat.PrayerStarts = delegate   // чат стирает историю через 20 минут после каждого намаза (кроме восхода)
+            {
+                List<DateTime> l = new List<DateTime>();
+                foreach (DateTime[] day in new[] { yesterday, today })
+                    if (day != null) for (int i = 0; i < day.Length; i++) if (i != 1) l.Add(day[i]);
+                return l;
+            };
 
             timer = new System.Windows.Forms.Timer();
             timer.Interval = 1000;

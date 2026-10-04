@@ -57,8 +57,8 @@ test('denied request, bad preset, text disabled, rate limit', () => {
 
   a.send({ type: 'send', code, kind: 'preset', preset: 'nope' });
   assert.equal(a.last('error').code, 'bad_preset');
-  a.send({ type: 'send', code, kind: 'text', text: 'hi' });
-  assert.equal(a.last('error').code, 'text_disabled');
+  a.send({ type: 'send', code, kind: 'text', text: 'hi' });   // свободного текста нет
+  assert.equal(a.last('error').code, 'bad_kind');
   for (let i = 0; i < 15; i++) a.send({ type: 'ping' });
   assert.equal(a.last('error').code, 'rate_limited');
 });
@@ -96,4 +96,37 @@ test('leaving removes empty group', () => {
   a.send({ type: 'leave', code });
   assert.ok(a.last('left'));
   assert.equal(hub.groups.size, 0);
+});
+
+test('history: clearHistory (members only, sane time) and 12 h safety TTL', () => {
+  let t = 1_000_000_000_000;
+  const hub = new Hub({ secret: 's', now: () => t });
+  const a = client(hub, 'alice', 'Alice'); a.hello();
+  a.send({ type: 'createGroup', name: 'G' });
+  const code = a.last('groupCreated').group.code;
+  const b = client(hub, 'bob', 'Bob'); b.hello();
+
+  a.send({ type: 'send', code, kind: 'preset', preset: 'together' });
+  t += 60_000;
+  a.send({ type: 'send', code, kind: 'preset', preset: 'ready' });
+  assert.equal(hub.groups.get(code).history.length, 2);
+
+  b.send({ type: 'clearHistory', code, before: t });                 // not a member
+  assert.equal(b.last('error').code, 'forbidden');
+  a.send({ type: 'clearHistory', code, before: t + 1000 });          // from the future
+  assert.equal(a.last('error').code, 'bad_time');
+  a.send({ type: 'clearHistory', code, before: t - 24 * 3600 * 1000 - 1 });   // too old
+  assert.equal(a.last('error').code, 'bad_time');
+
+  a.send({ type: 'clearHistory', code, before: t - 30_000 });        // wipes only the first message
+  assert.equal(hub.groups.get(code).history.length, 1);
+  assert.equal(a.last('historyCleared').code, code);
+  a.send({ type: 'clearHistory', code, before: t });
+  assert.equal(hub.groups.get(code).history.length, 0);
+
+  a.send({ type: 'send', code, kind: 'preset', preset: 'done' });
+  t += 13 * 3600 * 1000;                                             // 13 h later: TTL
+  const c = client(hub, 'alice', 'Alice');
+  c.hello([{ code, name: 'G', token: a.last('groupCreated').token }]);
+  assert.equal(c.last('welcome').groups[0].history.length, 0);
 });

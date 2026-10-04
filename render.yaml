@@ -11,5 +11,3 @@ services:
     envVars:
       - key: TOKEN_SECRET
         generateValue: true
-      - key: ALLOW_TEXT
-        value: "0"

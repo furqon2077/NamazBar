@@ -220,6 +220,45 @@ namespace NamazBar
         public static readonly List<ChatGroup> Groups = new List<ChatGroup>();
         public static bool Connected;
         public static string LastError;   // почему не получается подключиться (null — всё в порядке)
+
+        // История живёт недолго: через 20 минут после времени каждого намаза сообщения стираются
+        public const int ClearAfterMinutes = 20;
+        public static Func<List<DateTime>> PrayerStarts;   // начала намазов (вчера и сегодня), задаёт приложение
+        static DateTime lastCutoff = DateTime.MinValue;
+
+        // Последний уже наступивший момент «начало намаза + 20 минут»
+        public static DateTime CurrentCutoff()
+        {
+            DateTime best = DateTime.MinValue;
+            Func<List<DateTime>> f = PrayerStarts;
+            List<DateTime> list = null;
+            if (f != null) { try { list = f(); } catch { } }
+            if (list == null) return best;
+            DateTime now = DateTime.Now;
+            foreach (DateTime p in list) { DateTime c = p.AddMinutes(ClearAfterMinutes); if (c <= now && c > best) best = c; }
+            return best;
+        }
+
+        static long ToMs(DateTime local) { return (long)(local.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; }
+
+        // Вызывается раз в полминуты: сменилась граница — стираем историю у себя и просим сервер стереть у всех
+        public static void PruneTick()
+        {
+            DateTime cut = CurrentCutoff();
+            if (cut == DateTime.MinValue || cut <= lastCutoff) return;
+            lastCutoff = cut;
+            bool changed = false;
+            foreach (ChatGroup g in Groups) if (g.Messages.RemoveAll(delegate(ChatMsg m) { return m.Time <= cut; }) > 0) changed = true;
+            SendClears(cut);
+            if (changed) Fire();
+        }
+
+        static void SendClears(DateTime cut)
+        {
+            if (!Connected || cut == DateTime.MinValue || (DateTime.Now - cut).TotalHours > 23) return;   // сервер принимает границу не старше суток
+            long ms = ToMs(cut);
+            foreach (ChatGroup g in Groups) Send(new Dictionary<string, object> { { "type", "clearHistory" }, { "code", g.Code }, { "before", ms } });
+        }
         public static string UserId, Nick, Avatar, Server;
         public static ChatGroup Active;                     // открытая в окне группа (для счётчика непрочитанных)
         static string lastLine; static DateTime lastLineAt;
@@ -389,6 +428,8 @@ namespace NamazBar
             foreach (Dictionary<string, object> m in J.List(g, "members")) grp.Members.Add(ParseMember(m));
             if (grp.Messages.Count == 0)
                 foreach (Dictionary<string, object> m in J.List(g, "history")) { ChatMsg x = ParseMsg(m); if (x.Code == null) x.Code = code; grp.Messages.Add(x); }
+            DateTime cut = CurrentCutoff();
+            if (cut != DateTime.MinValue) grp.Messages.RemoveAll(delegate(ChatMsg m) { return m.Time <= cut; });
             return grp;
         }
 
@@ -404,6 +445,18 @@ namespace NamazBar
                     Groups.RemoveAll(delegate(ChatGroup g) { return !keep.Contains(g.Code); });
                     foreach (string c in new List<string>(tokens.Keys)) if (!keep.Contains(c)) { tokens.Remove(c); names.Remove(c); }
                     SaveGroups();
+                    SendClears(CurrentCutoff());   // сервер мог хранить историю до границы
+                    break;
+                }
+                case "historyCleared":
+                {
+                    ChatGroup g = Find(J.Str(d, "code"));
+                    long before = J.Long(d, "before");
+                    if (g != null && before > 0)
+                    {
+                        DateTime cut = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(before).ToLocalTime();
+                        g.Messages.RemoveAll(delegate(ChatMsg m) { return m.Time <= cut; });
+                    }
                     break;
                 }
                 case "groupCreated":
@@ -448,7 +501,12 @@ namespace NamazBar
                 case "joinPending": Notice2(string.Format(ChatT.T("waiting"), J.Str(d, "name")), false); break;
                 case "joinDenied": Notice2(ChatT.T("denied"), true); break;
                 case "left": { ChatGroup g = Find(J.Str(d, "code")); if (g != null) { Groups.Remove(g); tokens.Remove(g.Code); names.Remove(g.Code); SaveGroups(); if (Active == g) Active = null; } break; }
-                case "error": Notice2(J.Str(d, "message") ?? "error", true); break;
+                case "error":
+                {
+                    string em = J.Str(d, "message") ?? "error";
+                    if (em.IndexOf("within the last 24 hours", StringComparison.Ordinal) < 0) Notice2(em, true);   // расхождение часов при очистке — не показываем
+                    break;
+                }
             }
             Fire();
         }
@@ -471,6 +529,9 @@ namespace NamazBar
             Chat.JoinSettled += delegate(string id) { ChatToast.Settled(id); };
             Chat.Notice += delegate(string text, bool error) { if (!ChatForm.IsOpen) ChatToast.Info(text, error); };
             Chat.Start();
+            System.Windows.Forms.Timer prune = new System.Windows.Forms.Timer { Interval = 30000 };
+            prune.Tick += delegate { Chat.PruneTick(); };
+            prune.Start();
         }
         static void Beep() { if (Store.Get("chatSound", "1") != "0") System.Media.SystemSounds.Asterisk.Play(); }
     }

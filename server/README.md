@@ -8,7 +8,7 @@ npm test
 TOKEN_SECRET=change-me npm start      # ws://localhost:8080/ws, health: /healthz
 ```
 
-Env: `PORT` (injected by hosts), `TOKEN_SECRET` (keep it stable — it signs membership tokens, so groups survive restarts), `ALLOW_TEXT=1` to allow free text besides presets.
+Env: `PORT` (injected by hosts), `TOKEN_SECRET` (keep it stable — it signs membership tokens, so groups survive restarts). The chat has only ready-made phrases (no free text); history older than 20 minutes after a prayer time is cleared by the apps, and the server drops anything older than 12 hours on its own.
 
 ## Free hosting
 - **Render** (included): `render.yaml` at the repo root; New → Blueprint. Free web services support WebSockets but sleep after ~15 min idle; the first connect after sleep takes up to a minute, and clients reconnect automatically.
