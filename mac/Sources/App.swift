@@ -295,6 +295,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(sys)
 
         menu.addItem(.separator())
+        let ver = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
+        let verItem = NSMenuItem(title: "NamazBar " + (ver.hasPrefix("__") ? "dev" : ver), action: nil, keyEquivalent: "")
+        verItem.isEnabled = false
+        menu.addItem(verItem)
         let quit = NSMenuItem(title: Lang.T("exit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
     }

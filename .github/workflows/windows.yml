@@ -57,6 +57,12 @@ jobs:
           $x = [regex]::Replace($x, '(<Identity [^>]*Version=")[^"]*(")', "`${1}$v.0`$2")
           [IO.File]::WriteAllText($f, $x, (New-Object Text.UTF8Encoding $true))
           Select-String -Path $f -Pattern '<Identity'
+          # то же число показываем в меню приложения
+          $src = 'windows/NamazBar.cs'
+          $c = [IO.File]::ReadAllText($src)
+          $c = $c.Replace('Version = "dev"; /* @VERSION@ */', "Version = `"$v`"; /* @VERSION@ */")
+          [IO.File]::WriteAllText($src, $c, (New-Object Text.UTF8Encoding $true))
+          Select-String -Path $src -Pattern '@VERSION@'
 
       - name: Build installer (build.bat /pack)
         shell: cmd
