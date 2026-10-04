@@ -1057,7 +1057,8 @@ namespace NamazBar
     {
         public static readonly float K = Dpi();
         static float Dpi() { using (Bitmap b = new Bitmap(1, 1)) using (Graphics g = Graphics.FromImage(b)) return g.DpiX / 96f; }
-        public static int S(float v) { return (int)Math.Round(v * K); }
+        public static float Zoom { get { return Night ? 1.35f : 1f; } }   // на экране перерыва чат крупнее: шрифты, аватары, кнопки
+        public static int S(float v) { return (int)Math.Round(v * K * Zoom); }
 
         // Нейтральная тема в духе Google: светлая или тёмная — как в настройках Windows, один синий акцент, не зависит от скина
         public static bool Dark = DetectDark();
@@ -1083,12 +1084,20 @@ namespace NamazBar
         public static Color Offline { get { if (Night) return C(128, 142, 138); return Dark ? C(128, 134, 139) : C(154, 160, 166); } }
 
         static Font body, bold, small, big, caps, title;
-        public static Font Title { get { if (title == null) title = Fonts.Get("NB Sans Medium", 10.5f, "Segoe UI Semibold", FontStyle.Regular); return title; } }
-        public static Font Body { get { if (body == null) body = Fonts.Get("NB Sans", 9.5f, "Segoe UI", FontStyle.Regular); return body; } }
-        public static Font Medium { get { if (bold == null) bold = Fonts.Get("NB Sans Medium", 9.5f, "Segoe UI Semibold", FontStyle.Regular); return bold; } }
-        public static Font Small { get { if (small == null) small = Fonts.Get("NB Sans", 8f, "Segoe UI", FontStyle.Regular); return small; } }
-        public static Font Big { get { if (big == null) big = Fonts.Get("NB Sans Bold", 12f, "Segoe UI", FontStyle.Bold); return big; } }
-        public static Font Caps { get { if (caps == null) caps = Fonts.Get("NB Sans Bold", 8f, "Segoe UI", FontStyle.Bold); return caps; } }
+        public static Font Title { get { if (title == null) title = Fonts.Get("NB Sans Medium", 10.5f, "Segoe UI Semibold", FontStyle.Regular); return Zf(title); } }
+        public static Font Body { get { if (body == null) body = Fonts.Get("NB Sans", 9.5f, "Segoe UI", FontStyle.Regular); return Zf(body); } }
+        public static Font Medium { get { if (bold == null) bold = Fonts.Get("NB Sans Medium", 9.5f, "Segoe UI Semibold", FontStyle.Regular); return Zf(bold); } }
+        public static Font Small { get { if (small == null) small = Fonts.Get("NB Sans", 8f, "Segoe UI", FontStyle.Regular); return Zf(small); } }
+        public static Font Big { get { if (big == null) big = Fonts.Get("NB Sans Bold", 12f, "Segoe UI", FontStyle.Bold); return Zf(big); } }
+        public static Font Caps { get { if (caps == null) caps = Fonts.Get("NB Sans Bold", 8f, "Segoe UI", FontStyle.Bold); return Zf(caps); } }
+
+        static readonly Dictionary<Font, Font> zoomed = new Dictionary<Font, Font>();
+        static Font Zf(Font f)
+        {
+            if (!Night) return f;
+            Font z; if (!zoomed.TryGetValue(f, out z)) { z = new Font(f.FontFamily, f.Size * Zoom, f.Style); zoomed[f] = z; }
+            return z;
+        }
 
         public static GraphicsPath Round(Rectangle r, int rad)
         {

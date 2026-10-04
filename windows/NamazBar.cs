@@ -1533,7 +1533,9 @@ namespace NamazBar
             {
                 chat = new BreakChat();
                 int lw0 = bounds.Width / 2;
-                chat.SetBounds(lw0 + S(10), S(110), bounds.Width - lw0 - S(10) - S(40), Math.Max(S(300), bounds.Height - S(110) - S(130)));
+                int cw0 = Math.Min(S(510), bounds.Width - lw0 - S(50));   // в 1,5 раза шире окна чата
+                int ch0 = Math.Min(S(1040), bounds.Height - S(40));   // чат опущен и стоит по центру экрана по вертикали
+                chat.SetBounds(lw0 + (bounds.Width - lw0 - cw0) / 2, (bounds.Height - ch0) / 2, cw0, Math.Max(S(300), ch0));
                 Controls.Add(chat);
             }
             fBig = Palette.Serif(21f, FontStyle.Bold);
