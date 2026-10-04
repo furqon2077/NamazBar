@@ -63,7 +63,7 @@ class Hub {
       if (msg.type === 'hello') return this.hello(conn, msg);
       if (!conn.userId) throw new ProtocolError('no_hello', 'send hello first');
       const fn = { updateProfile: 'updateProfile', createGroup: 'createGroup', joinRequest: 'joinRequest',
-                   decide: 'decide', send: 'sendMessage', leave: 'leave', clearHistory: 'clearHistory' }[msg.type];
+                   decide: 'decide', send: 'sendMessage', leave: 'leave', clearHistory: 'clearHistory', clearChat: 'clearChat' }[msg.type];
       if (!fn) throw new ProtocolError('unknown_type', `unknown type ${clean(msg.type, 32)}`);
       this[fn](conn, msg);
     } catch (e) {
@@ -115,7 +115,7 @@ class Hub {
       const code = clean(g?.code, 12).toUpperCase();
       if (!this.validToken(code, p.userId, g?.token)) continue;
       let group = this.groups.get(code);
-      if (!group) { group = this.makeGroup(code, clean(g.name, LIMITS.groupName) || code); }
+      if (!group) { group = this.makeGroup(code, clean(g.name, LIMITS.groupName) || code); group.owner = p.userId; }
       if (!group.members.has(p.userId) && group.members.size >= LIMITS.members) continue;
       group.members.set(p.userId, p);
       conn.groups.add(code);
@@ -142,6 +142,7 @@ class Hub {
     if (!name) throw new ProtocolError('bad_name', 'group name required');
     let code; do { code = this.randomCode(); } while (this.groups.has(code));
     const group = this.makeGroup(code, name);
+    group.owner = conn.userId;
     this.addMember(group, conn);
     conn.send({ type: 'groupCreated', group: this.snapshot(group), token: this.token(code, conn.userId) });
   }
@@ -220,6 +221,16 @@ class Hub {
     this.broadcast(group, { type: 'historyCleared', code, before });
   }
 
+  // Только владелец группы может стереть всю переписку разом
+  clearChat(conn, msg) {
+    const code = clean(msg.code, 12).toUpperCase();
+    const group = this.groups.get(code);
+    if (!group?.members.has(conn.userId)) throw new ProtocolError('forbidden', 'not a member of that group');
+    if (group.owner !== conn.userId) throw new ProtocolError('not_owner', 'only the group owner can clear the chat');
+    group.history = [];
+    this.broadcast(group, { type: 'historyCleared', code, before: this.now() });
+  }
+
   prune(group) {
     const min = this.now() - LIMITS.historyTtlMs;
     group.history = group.history.filter(m => m.ts > min);
@@ -230,7 +241,11 @@ class Hub {
     const group = this.groups.get(code);
     if (!group?.members.delete(conn.userId)) throw new ProtocolError('forbidden', 'not a member of that group');
     for (const c of this.online.get(conn.userId) ?? []) { c.groups.delete(code); c.send({ type: 'left', code }); }
-    if (group.members.size === 0) this.groups.delete(code); else this.broadcastMembers(code);
+    if (group.members.size === 0) this.groups.delete(code);
+    else {
+      if (group.owner === conn.userId) group.owner = group.members.keys().next().value;   // владелец вышел — им становится следующий
+      this.broadcastMembers(code);
+    }
   }
 
   // ---- helpers ------------------------------------------------------------
@@ -252,7 +267,7 @@ class Hub {
   public(p) { return { userId: p.userId, nick: p.nick, avatar: p.avatar }; }
   snapshot(g) {
     this.prune(g);
-    return { code: g.code, name: g.name, members: this.memberList(g), history: g.history };
+    return { code: g.code, name: g.name, owner: g.owner ?? null, members: this.memberList(g), history: g.history };
   }
   memberList(g) {
     return [...g.members.values()].map(p => ({ ...this.public(p), online: this.online.has(p.userId) }));
@@ -262,7 +277,7 @@ class Hub {
   }
   broadcastMembers(code) {
     const g = this.groups.get(code);
-    if (g) this.broadcast(g, { type: 'members', code, members: this.memberList(g) });
+    if (g) this.broadcast(g, { type: 'members', code, owner: g.owner ?? null, members: this.memberList(g) });
   }
 }
 
