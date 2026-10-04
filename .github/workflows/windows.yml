@@ -6,8 +6,10 @@ name: Windows build
 
 on:
   push:
+    branches: [ "**" ]   # теги собирает release.yml
     paths: [ "windows/**", "fonts/**", ".github/workflows/windows.yml" ]
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   build:
@@ -36,6 +38,18 @@ jobs:
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX))
           Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:SIGN_PWD -AsPlainText -Force) | Out-Null
           Remove-Item $pfx
+
+      - name: Package version from the release tag (vX.Y.Z -> X.Y.Z.0)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $v = '${{ github.ref_name }}'.TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Tag must look like v1.2.3, got $v" }
+          $f = 'windows/AppxManifest.xml'
+          $x = [IO.File]::ReadAllText($f)
+          $x = [regex]::Replace($x, '(<Identity [^>]*Version=")[^"]*(")', "`${1}$v.0`$2")
+          [IO.File]::WriteAllText($f, $x, (New-Object Text.UTF8Encoding $true))
+          Select-String -Path $f -Pattern '<Identity'
 
       - name: Build installer (build.bat /pack)
         shell: cmd
