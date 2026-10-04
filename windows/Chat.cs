@@ -306,8 +306,8 @@ namespace NamazBar
             if (!Uri.TryCreate(Server, UriKind.Absolute, out u) || (u.Scheme != "ws" && u.Scheme != "wss")) { Notice2("Server URL must start with ws:// or wss://", true); return; }
             link = new RelayLink(Server);
             RelayLink mine = link;
-            link.Connection += delegate(bool up) { Post(delegate { if (link != mine) return; Connected = up; if (up) { LastError = null; Hello(); } Fire(); }); };
-            link.Failed += delegate(string why) { Post(delegate { if (link != mine) return; LastError = why; Fire(); }); };
+            link.Connection += delegate(bool up) { Post(delegate { if (link != mine) return; Connected = up; if (up) { LastError = null; ProbeKind = 0; Hello(); } Fire(); }); };
+            link.Failed += delegate(string why) { Post(delegate { if (link != mine) return; LastError = why; if (!probing && (why.Contains("starting up") || why.Contains("no answer yet"))) Wake(null); Fire(); }); };
             link.Received += delegate(Dictionary<string, object> d) { Post(delegate { if (link == mine) Handle(d); }); };
             link.Start();
         }
@@ -319,6 +319,102 @@ namespace NamazBar
         }
 
         public static void Stop() { Disconnect(); }
+
+        // ---- состояние сервера: проверка /healthz и «будильник» для бесплатного хостинга
+        public static int ProbeKind;          // 0 нет, 1 проверяем, 2 отвечает, 3 спит/просыпается, 4 недоступен
+        public static int ProbeMs; public static string ProbeMsg; static DateTime ProbeAt, wakeStart;
+        static volatile bool probing;
+        public static bool Probing { get { return probing; } }
+
+        static int ProbeOnce(string wsUrl, out int ms, out string msg)
+        {
+            ms = 0; msg = null;
+            Uri u;
+            if (!Uri.TryCreate(wsUrl, UriKind.Absolute, out u)) { msg = "bad address"; return 4; }
+            string http = (u.Scheme == "wss" ? "https://" : "http://") + u.Authority + "/healthz";
+            DateTime t0 = DateTime.Now;
+            try
+            {
+                HttpWebRequest r = (HttpWebRequest)WebRequest.Create(http);
+                r.Timeout = 12000; r.UserAgent = "NamazBar";
+                using (HttpWebResponse resp = (HttpWebResponse)r.GetResponse())
+                {
+                    ms = (int)(DateTime.Now - t0).TotalMilliseconds;
+                    return resp.StatusCode == HttpStatusCode.OK ? 2 : 3;
+                }
+            }
+            catch (WebException ex)
+            {
+                HttpWebResponse hr = ex.Response as HttpWebResponse;
+                if (hr != null)
+                {
+                    int c = (int)hr.StatusCode;
+                    if (c == 502 || c == 503 || c == 504 || c == 429) return 3;
+                    msg = c == 404 ? "this address is not a NamazBar server (404)" : "HTTP " + c; return 4;
+                }
+                if (ex.Status == WebExceptionStatus.Timeout) return 3;
+                if (ex.Status == WebExceptionStatus.NameResolutionFailure) { msg = "address not found (DNS)"; return 4; }
+                msg = RelayLink.Friendly(ex.Message); return 4;
+            }
+            catch (Exception ex) { msg = RelayLink.Friendly(ex.Message); return 4; }
+        }
+
+        // Проверить сервер и, если он спит, будить запросами до 90 с; ответил — сразу подключаемся
+        public static void Wake(string server)
+        {
+            string target = NormalizeServer(string.IsNullOrEmpty(server) ? Server : server);
+            if (string.IsNullOrEmpty(target) || probing) return;
+            probing = true; wakeStart = DateTime.Now; ProbeAt = wakeStart; ProbeKind = 1; ProbeMsg = null; Fire();
+            Thread t = new Thread(delegate()
+            {
+                try
+                {
+                    try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; } catch { }
+                    while (true)
+                    {
+                        int ms; string msg; int k = ProbeOnce(target, out ms, out msg);
+                        bool late = (DateTime.Now - wakeStart).TotalSeconds > 90;
+                        if (k == 3 && late) { k = 4; msg = "no answer after 90 s"; }
+                        int kk = k, mm = ms; string mg = msg;
+                        Post(delegate
+                        {
+                            ProbeKind = kk; ProbeMs = mm; ProbeMsg = mg; ProbeAt = DateTime.Now;
+                            if (kk == 2 && target == Server && !Connected) Connect();
+                            Fire();
+                        });
+                        if (k != 3) break;
+                        Thread.Sleep(3000);
+                    }
+                }
+                finally { probing = false; Post(delegate { Fire(); }); }
+            });
+            t.IsBackground = true; t.Name = "chat-wake"; t.Start();
+        }
+
+        // kind: 0 серый, 1 зелёный, 2 жёлтый, 3 красный
+        public static void Status(out int kind, out string text)
+        {
+            bool fresh = ProbeKind != 0 && (DateTime.Now - ProbeAt).TotalSeconds < 60;
+            if (Connected) { kind = 1; text = ChatT.T("srvActive") + (fresh && ProbeKind == 2 && ProbeMs > 0 ? "  ·  " + ProbeMs + " ms" : ""); return; }
+            if (probing)
+            {
+                kind = 2;
+                text = ProbeKind == 3 ? ChatT.T("srvSleep") + "  " + (int)(DateTime.Now - wakeStart).TotalSeconds + " s" : ChatT.T("srvChecking");
+                return;
+            }
+            if (!Configured && !fresh) { kind = 0; text = ChatT.T("setup"); return; }
+            if (fresh && ProbeKind == 4) { kind = 3; text = ChatT.T("srvDown") + (ProbeMsg != null ? " - " + ProbeMsg : ""); return; }
+            if (fresh && ProbeKind == 2) { kind = 2; text = ChatT.T("srvConnecting"); return; }
+            string e = LastError;
+            if (!string.IsNullOrEmpty(e))
+            {
+                if (e.Contains("starting up") || e.Contains("no answer yet")) { kind = 2; text = ChatT.T("srvSleep"); }
+                else { kind = 3; text = ChatT.T("srvDown") + " - " + e; }
+                return;
+            }
+            kind = 2; text = ChatT.T("srvConnecting");
+        }
+        public static string StatusText() { int k; string t; Status(out k, out t); return t; }
 
         // «example.onrender.com», «https://…» и «wss://…» без пути приводим к рабочему wss://…/ws
         public static string NormalizeServer(string s)
@@ -556,6 +652,12 @@ namespace NamazBar
             { "newName",  new[] { "Guruh nomi (masalan: Ofis)", "Гуруҳ номи (масалан: Офис)", "Название группы (например: Офис)", "Group name (e.g. Office)" } },
             { "enterCode",new[] { "Guruh kodi", "Гуруҳ коди", "Код группы", "Group code" } },
             { "connected",new[] { "Ulangan", "Уланган", "Подключено", "Connected" } },
+            { "srvActive",     new[] { "Faol", "Фаол", "Активен", "Active" } },
+            { "srvConnecting", new[] { "Ulanmoqda…", "Уланмоқда…", "Подключается…", "Connecting…" } },
+            { "srvSleep",      new[] { "Uyquda - uyg‘otilmoqda…", "Уйқуда - уйғотилмоқда…", "В спячке - будим…", "Asleep - waking up…" } },
+            { "srvDown",       new[] { "Mavjud emas", "Мавжуд эмас", "Недоступен", "Unreachable" } },
+            { "srvChecking",   new[] { "Tekshirilmoqda…", "Текширилмоқда…", "Проверка…", "Checking…" } },
+            { "srvWake",       new[] { "Tekshirish", "Текшириш", "Проверить / разбудить", "Check / wake" } },
             { "connecting",new[] { "Ulanmoqda…", "Уланмоқда…", "Подключение…", "Connecting…" } },
             { "setup",    new[] { "Taxallus va server manzilini kiriting", "Тахаллус ва сервер манзилини киритинг", "Укажите ник и адрес сервера", "Set a nickname and the server address" } },
             { "reqText",  new[] { "{0} «{1}» guruhiga qo'shilmoqchi", "{0} «{1}» гуруҳига қўшилмоқчи", "{0} хочет вступить в «{1}»", "{0} wants to join “{1}”" } },
@@ -901,7 +1003,7 @@ namespace NamazBar
             }
             if (!Chat.Connected)
             {
-                ToolStripMenuItem st = MenuUi.Sub(ChatT.T("connecting"), null);
+                ToolStripMenuItem st = MenuUi.Sub(Chat.StatusText(), null);
                 st.Enabled = false;
                 root.DropDownItems.Add(st);
             }
@@ -1544,7 +1646,7 @@ namespace NamazBar
         UiIconButton btnCollapse, btnClose, btnGear;
         UiTabs groupTabs, viewTabs;
         MessageView msgs; MemberList memberList;
-        StatusPill pill; Snackbar snack;
+        StatusPill pill, setPill; Snackbar snack; UiButton btnWake;
         Panel bar, quick, memberFoot, settingsPanel, addPanel, codeBar;
         Label lblCode; UiIconButton btnCopyIcon, btnClear;
         bool applying; Size regionSize; int dockH;
@@ -1600,6 +1702,7 @@ namespace NamazBar
             viewTabs.Changed += delegate { view = viewTabs.Selected; Refresh2(); };
             msgs = new MessageView(); memberList = new MemberList();
             pill = new StatusPill(); snack = new Snackbar();
+            pill.Cursor = Cursors.Hand; pill.Click += delegate { Chat.Wake(null); };
 
             // ---- быстрые ответы
             quick = new Panel { BackColor = Ui.Panel };
@@ -1648,11 +1751,14 @@ namespace NamazBar
             lblPick = MakeLabel(Ui.Small, Ui.Dim); lblPick.Text = ChatT.T("pick"); lblPick.TextAlign = ContentAlignment.MiddleCenter;
             inNick = new UiInput(ChatT.T("nick"), ""); inNick.Box.MaxLength = 24;
             inServer = new UiInput(ChatT.T("server"), "");
+            setPill = new StatusPill(); setPill.Cursor = Cursors.Hand; setPill.Click += delegate { Chat.Wake(inServer.Text); };
+            btnWake = new UiButton(ChatT.T("srvWake"), UiKind.Secondary); btnWake.Font = Ui.Small;
+            btnWake.Click += delegate { Chat.Wake(inServer.Text); UpdatePill(); };
             tgAuto = new UiToggle(ChatT.T("auto"), false);
             tgSound = new UiToggle(ChatT.T("sound"), true);
             btnSave = new UiButton(ChatT.T("save"), UiKind.Primary); btnSave.Click += delegate { SaveSettings(); };
             btnCancelSettings = new UiButton(ChatT.T("cancel"), UiKind.Secondary); btnCancelSettings.Click += delegate { forceSettings = false; Refresh2(); };
-            settingsPanel.Controls.AddRange(new Control[] { lblSetupHint, avatarBox, lblPick, inNick, inServer, tgAuto, tgSound, btnCancelSettings, btnSave });
+            settingsPanel.Controls.AddRange(new Control[] { lblSetupHint, avatarBox, lblPick, inNick, inServer, setPill, btnWake, tgAuto, tgSound, btnCancelSettings, btnSave });
 
             // ---- «+»: новая группа или вступить по коду (прямо в панели, без отдельных окон)
             addPanel = new Panel { BackColor = Ui.Bg };
@@ -1740,12 +1846,11 @@ namespace NamazBar
         void UpdatePill()
         {
             if (pill == null || IsDisposed) return;
-            Color green = Ui.Online, amber = Color.FromArgb(240, 178, 84), red = Color.FromArgb(240, 110, 90);
-            if (!Chat.Configured) pill.Set(amber, ChatT.T("setup"));
-            else if (Chat.Connected) pill.Set(green, ChatT.T("connected"));
-            else if (!string.IsNullOrEmpty(Chat.LastError)) pill.Set(red, ChatT.T("connecting") + " " + Chat.LastError);
-            else pill.Set(amber, ChatT.T("connecting"));
-            bool want = !collapsed && Chat.Configured && !forceSettings && !Chat.Connected;
+            int kind; string text; Chat.Status(out kind, out text);
+            Color c = kind == 1 ? Ui.Online : kind == 2 ? Color.FromArgb(240, 178, 84) : kind == 3 ? Color.FromArgb(240, 110, 90) : Color.Gray;
+            pill.Set(c, text); setPill.Set(c, text);
+            btnWake.Enabled = !Chat.Probing;
+            bool want = !collapsed && Chat.Configured && !forceSettings;
             if (pill.Visible != want) ApplyState();
         }
 
@@ -1790,7 +1895,7 @@ namespace NamazBar
             memberList.Visible = memberFoot.Visible = showGroup && view == 1;
             settingsPanel.Visible = showSettings; addPanel.Visible = showAdd;
             btnCancelSettings.Visible = cfg;
-            pill.Visible = !collapsed && cfg && !forceSettings && !Chat.Connected;
+            pill.Visible = !collapsed && cfg && !forceSettings;
             int H = collapsed ? barH : dockH;
             Rectangle anchor = Rectangle.Empty;
             try { if (ChatToast.Anchor != null) anchor = ChatToast.Anchor(); } catch { }
@@ -1840,7 +1945,7 @@ namespace NamazBar
                 lblCode.SetBounds(S(14), 0, btnCopyIcon.Left - S(18), S(30));
                 y += S(30);
             }
-            if (pill.Visible) { pill.SetBounds(S(12), y + S(6), W - S(24), S(22)); y += S(34); }
+            if (pill.Visible) { pill.SetBounds(S(12), y + S(4), W - S(24), S(22)); y += S(30); }
             int rest = Math.Max(S(40), H - y);
             // быстрые ответы — снизу
             int qpad = S(10), x = qpad, cy = S(8), rowH = S(26), gap = S(6);
@@ -1866,7 +1971,9 @@ namespace NamazBar
             avatarBox.SetBounds((W - S(68)) / 2, py, S(68), S(68)); py += S(70);
             lblPick.SetBounds(px, py, pw, S(16)); py += S(22);
             inNick.SetBounds(px, py, pw, S(48)); py += S(54);
-            inServer.SetBounds(px, py, pw, S(48)); py += S(56);
+            inServer.SetBounds(px, py, pw, S(48)); py += S(54);
+            btnWake.SetBounds(px + pw - S(118), py, S(118), S(26));
+            setPill.SetBounds(px, py + S(2), pw - S(124), S(22)); py += S(34);
             tgAuto.SetBounds(px, py, pw, S(34)); py += S(38);
             tgSound.SetBounds(px, py, pw, S(24));
             int by = rest - S(48);
