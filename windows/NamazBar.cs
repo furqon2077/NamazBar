@@ -1583,7 +1583,7 @@ namespace NamazBar
 
             tip = new ToolTip(); tip.InitialDelay = 400; tip.AutoPopDelay = 30000;
             BuildMenu();
-            ChatHooks.Init();
+            ChatHooks.Init(delegate { return WidgetScreenRect(); });
 
             timer = new System.Windows.Forms.Timer();
             timer.Interval = 1000;

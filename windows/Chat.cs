@@ -457,8 +457,9 @@ namespace NamazBar
     // Связка с приложением: уведомления о сообщениях и запросах на вступление
     static class ChatHooks
     {
-        public static void Init()
+        public static void Init(Func<Rectangle> toastAnchor)
         {
+            ChatToast.Anchor = toastAnchor;
             Chat.Incoming += delegate(ChatGroup g, ChatMsg m)
             {
                 Chat.RememberLine(g, m);
@@ -700,11 +701,30 @@ namespace NamazBar
             Restack();
             t.Show();
         }
+        // Где стоит виджет NamazBar на панели задач — уведомления выстраиваются слева, прямо над ним
+        public static Func<Rectangle> Anchor;
+
         static void Restack()
         {
-            Rectangle wa = Screen.PrimaryScreen.WorkingArea;
-            int y = wa.Bottom - 12;
-            foreach (ChatToast t in open) { y -= t.Height + 8; t.Location = new Point(wa.Right - t.Width - 12, y); }
+            Rectangle anchor = Rectangle.Empty;
+            try { if (Anchor != null) anchor = Anchor(); } catch { }
+            if (anchor.Width <= 0 || anchor.Height <= 0)   // виджет не найден — правый нижний угол
+            {
+                Rectangle w0 = Screen.PrimaryScreen.WorkingArea;
+                int y0 = w0.Bottom - 12;
+                foreach (ChatToast t in open) { y0 -= t.Height + 8; t.Location = new Point(w0.Right - t.Width - 12, y0); }
+                return;
+            }
+            Screen scr = Screen.FromRectangle(anchor);
+            Rectangle wa = scr.WorkingArea;
+            bool above = anchor.Top > scr.Bounds.Top + scr.Bounds.Height / 2;   // панель внизу — уведомления над ней
+            int y = above ? Math.Min(anchor.Top, wa.Bottom) - 8 : Math.Max(anchor.Bottom, wa.Top) + 8;
+            foreach (ChatToast t in open)
+            {
+                int x = Math.Max(wa.Left + 8, Math.Min(anchor.Left, wa.Right - t.Width - 8));
+                if (above) { y -= t.Height; t.Location = new Point(x, y); y -= 8; }
+                else { t.Location = new Point(x, y); y += t.Height + 8; }
+            }
         }
 
         protected override bool ShowWithoutActivation { get { return true; } }

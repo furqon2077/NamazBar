@@ -818,10 +818,11 @@ final class ChatToast: NSPanel {
         NSAnimationContext.runAnimationGroup { $0.duration = 0.2; t.animator().alphaValue = 1 }
         if seconds > 0 { t.timer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak t] _ in t?.dismiss() } }
     }
+    /// Под строкой меню справа (там же значок NamazBar), новые уведомления ниже предыдущих
     static func restack() {
         guard let scr = NSScreen.main?.visibleFrame else { return }
-        var y = scr.minY + 12
-        for t in open { t.setFrameOrigin(CGPoint(x: scr.maxX - t.frame.width - 14, y: y)); y += t.frame.height + 8 }
+        var y = scr.maxY - 12
+        for t in open { y -= t.frame.height; t.setFrameOrigin(CGPoint(x: scr.maxX - t.frame.width - 14, y: y)); y -= 8 }
     }
 
     init(_ view: ToastView) {
