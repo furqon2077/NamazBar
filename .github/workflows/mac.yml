@@ -18,7 +18,7 @@ jobs:
   build:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build app and dmg
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -32,7 +32,7 @@ jobs:
           chmod +x mac/build.sh
           swift --version
           mac/build.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: NamazBar-mac
           path: |
