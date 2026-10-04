@@ -576,6 +576,7 @@ namespace NamazBar
             { "copied",   new[] { "Kod nusxalandi", "Код нусхаланди", "Код скопирован", "Code copied" } },
             { "today",    new[] { "Bugun", "Бугун", "Сегодня", "Today" } },
             { "yesterday", new[] { "Kecha", "Кеча", "Вчера", "Yesterday" } },
+            { "setupBtn", new[] { "Chatni sozlash", "Чатни созлаш", "Настроить чат", "Set up chat" } },
             { "openChat", new[] { "Chatni ochish", "Чатни очиш", "Открыть чат", "Open chat" } },
             { "chatTab",  new[] { "Chat", "Чат", "Чат", "Chat" } },
             { "members",  new[] { "A'zolar", "Аъзолар", "Участники", "Members" } },
@@ -1220,6 +1221,17 @@ namespace NamazBar
     // Настройки профиля и сервера (как «Настройки» в Telegram): ник, фото, адрес, переключатели
     class ChatSettings : Form
     {
+        static ChatSettings open;
+        // Обычное окно, не модальное: остальные окна чата (в том числе док-панель) остаются доступными
+        public static void ShowSingle()
+        {
+            if (open != null && !open.IsDisposed) { open.Activate(); return; }
+            open = new ChatSettings();
+            open.TopMost = true; open.StartPosition = FormStartPosition.CenterScreen;
+            open.FormClosed += delegate { open = null; };
+            open.Show();
+        }
+
         readonly UiInput inNick, inServer;
         readonly UiToggle tgAuto, tgSound;
         readonly AvatarBox avatar;
@@ -1229,7 +1241,7 @@ namespace NamazBar
             AutoScaleMode = AutoScaleMode.None;
             Text = ChatT.T("settings");
             FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ShowInTaskbar = false;
-            StartPosition = FormStartPosition.CenterParent;
+            StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(Ui.S(480), Ui.S(500));
             BackColor = Ui.Panel; ForeColor = Ui.Text; Font = Ui.Body;
             try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -1254,9 +1266,9 @@ namespace NamazBar
                 Store.Settings["chatSound"] = tgSound.Checked ? "1" : "0";
                 Store.Save();
                 Chat.Configure(inServer.Text, inNick.Text);
-                DialogResult = DialogResult.OK; Close();
+                Close();
             };
-            cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
+            cancel.Click += delegate { Close(); };
             Controls.AddRange(new Control[] { avatar, hint, inNick, inServer, tgAuto, tgSound, cancel, save });
         }
     }
@@ -1493,12 +1505,12 @@ namespace NamazBar
         bool collapsed;
         int groupIdx;
         Label lblTitle, lblBadge;
-        UiIconButton btnCollapse, btnPop, btnClose;
+        UiIconButton btnCollapse, btnPop, btnClose, btnGearDock;
         UiTabs groupTabs, viewTabs;
         MessageView msgs; MemberList memberList;
         StatusPill pill;
         Panel quick, empty, bar;
-        UiButton btnNew, btnJoin;
+        UiButton btnNew, btnJoin, btnSetup;
         readonly List<UiButton> chips = new List<UiButton>();
 
         int S(float v) { return Ui.S(v); }
@@ -1531,7 +1543,8 @@ namespace NamazBar
             btnCollapse = new UiIconButton(""); btnCollapse.Click += delegate { Toggle(); };
             btnPop = new UiIconButton(""); btnPop.Click += delegate { ChatForm.ShowSingle(); };
             btnClose = new UiIconButton(""); btnClose.Click += delegate { Close(); };
-            bar.Controls.AddRange(new Control[] { lblTitle, lblBadge, btnPop, btnCollapse, btnClose });
+            btnGearDock = new UiIconButton(""); btnGearDock.Click += delegate { ChatSettings.ShowSingle(); };
+            bar.Controls.AddRange(new Control[] { lblTitle, lblBadge, btnGearDock, btnPop, btnCollapse, btnClose });
             groupTabs = new UiTabs(); groupTabs.Changed += delegate { groupIdx = groupTabs.Selected; Refresh2(); };
             viewTabs = new UiTabs { Items = new[] { ChatT.T("chatTab"), ChatT.T("members") } }; viewTabs.Changed += delegate { Refresh2(); };
             msgs = new MessageView(); memberList = new MemberList();
@@ -1551,7 +1564,9 @@ namespace NamazBar
             btnNew.Click += delegate { string n = Dlg.Ask(this, ChatT.T("create"), ChatT.T("newName"), ""); if (!string.IsNullOrEmpty(n)) Chat.CreateGroup(n); };
             btnJoin = new UiButton(ChatT.T("join"), UiKind.Secondary);
             btnJoin.Click += delegate { string c = Dlg.Ask(this, ChatT.T("join"), ChatT.T("enterCode"), ""); if (!string.IsNullOrEmpty(c)) Chat.RequestJoin(c); };
-            empty.Controls.AddRange(new Control[] { btnNew, btnJoin });
+            btnSetup = new UiButton(ChatT.T("setupBtn"), UiKind.Primary);
+            btnSetup.Click += delegate { ChatSettings.ShowSingle(); };
+            empty.Controls.AddRange(new Control[] { btnNew, btnJoin, btnSetup });
             Controls.AddRange(new Control[] { bar, groupTabs, viewTabs, msgs, memberList, pill, quick, empty });
         }
 
@@ -1566,8 +1581,9 @@ namespace NamazBar
                 using (SolidBrush b = new SolidBrush(Color.FromArgb(28, Palette.Emerald))) g.FillPath(b, p);
                 using (Pen pen = new Pen(Color.FromArgb(150, Palette.Gold), 1.5f)) g.DrawPath(pen, p);
             }
-            TextRenderer.DrawText(g, ChatT.T("noGroup"), Ui.Medium, new Rectangle(S(24), (int)cy + (int)r + S(14), w - S(48), S(44)), Palette.Ivory, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
-            TextRenderer.DrawText(g, ChatT.T("noGroupHint"), Ui.Small, new Rectangle(S(28), (int)cy + (int)r + S(62), w - S(56), S(54)), Ui.Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
+            bool cfg = Chat.Configured;
+            TextRenderer.DrawText(g, ChatT.T(cfg ? "noGroup" : "setup"), Ui.Medium, new Rectangle(S(24), (int)cy + (int)r + S(14), w - S(48), S(44)), Palette.Ivory, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
+            if (cfg) TextRenderer.DrawText(g, ChatT.T("noGroupHint"), Ui.Small, new Rectangle(S(28), (int)cy + (int)r + S(62), w - S(56), S(54)), Ui.Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
         }
 
         void Toggle() { collapsed = !collapsed; ApplyState(); if (!collapsed) Activate(); }
@@ -1616,7 +1632,8 @@ namespace NamazBar
             memberList.Visible = !collapsed && has && !chatTab;
             quick.Visible = !collapsed && has && chatTab;
             empty.Visible = !collapsed && !has;
-            pill.Visible = !collapsed && (!Chat.Connected || !Chat.Configured);
+            btnSetup.Visible = !Chat.Configured; btnNew.Visible = btnJoin.Visible = Chat.Configured;
+            pill.Visible = !collapsed && Chat.Configured && !Chat.Connected;
             int H = collapsed ? barH : S(600);
             Rectangle anchor = Rectangle.Empty;
             try { if (ChatToast.Anchor != null) anchor = ChatToast.Anchor(); } catch { }
@@ -1640,8 +1657,9 @@ namespace NamazBar
             btnClose.SetBounds(W - S(44), S(7), S(40), S(40));
             btnCollapse.SetBounds(W - S(88), S(7), S(40), S(40));
             btnPop.SetBounds(W - S(132), S(7), S(40), S(40));
-            lblBadge.SetBounds(W - S(190), S(15), S(34), S(24));
-            lblTitle.SetBounds(S(16), S(10), W - S(16) - S(140) - (lblBadge.Visible ? S(50) : 0), S(34));
+            btnGearDock.SetBounds(W - S(176), S(7), S(40), S(40));
+            lblBadge.SetBounds(W - S(222), S(15), S(34), S(24));
+            lblTitle.SetBounds(S(16), S(10), W - S(16) - S(184) - (lblBadge.Visible ? S(50) : 0), S(34));
             int y = barH;
             if (groupTabs.Visible) { groupTabs.SetBounds(0, y, W, S(40)); y += S(40); }
             if (viewTabs.Visible) { viewTabs.SetBounds(0, y, W, S(40)); y += S(40); }
@@ -1662,6 +1680,7 @@ namespace NamazBar
             empty.SetBounds(0, y, W, Math.Max(S(40), H - y));
             btnNew.SetBounds(S(24), empty.Height - S(110), W - S(48), S(42));
             btnJoin.SetBounds(S(24), empty.Height - S(60), W - S(48), S(42));
+            btnSetup.SetBounds(S(24), empty.Height - S(110), W - S(48), S(42));
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -1786,12 +1805,7 @@ namespace NamazBar
             Controls.Add(main); Controls.Add(side);
         }
 
-        void OpenSettings()
-        {
-            using (ChatSettings f = new ChatSettings()) f.ShowDialog(this);
-            RefreshProfile();
-            OnChanged();
-        }
+        void OpenSettings() { ChatSettings.ShowSingle(); }
         void RefreshProfile() { lblNick.Text = string.IsNullOrEmpty(Chat.Nick) ? ChatT.T("nick") : Chat.Nick; avatarBox.Invalidate(); }
 
         void CopyCode() { ChatGroup g = Current; if (g != null) { try { Clipboard.SetText(g.Code); noticeText = ChatT.T("copied"); noticeError = false; noticeAt = DateTime.Now; UpdatePill(); } catch { } } }
