@@ -9,4 +9,6 @@
 | [`server/`](server) | Чат-реле для групп (Node.js, бесплатный хостинг), протокол — [`docs/protocol.md`](docs/protocol.md) | `cd server && npm ci && npm test` |
 | [`fonts/`](fonts) | Google Sans (OFL), общие для обоих проектов | — |
 
+Цветовые темы (Windows): меню → Оформление → Цветовая тема — Изумруд, Рубин, Сапфир, Закат, Оникс, Жемчуг (`windows/Skins.cs`). Групповой чат: меню → «Чат для совместного намаза» (сервер — `server/`, протокол — `docs/protocol.md`).
+
 Расчёт времени в обоих проектах одинаковый (порт adhan-js); сверка — `mac/out/preview/times.txt` против Windows-версии.

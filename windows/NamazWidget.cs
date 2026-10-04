@@ -243,6 +243,7 @@ namespace NamazBar
         public static Prefs Parse(string custom)
         {
             Store.Load();
+            Skin.Load();   // цвета выбранной темы (меню NamazBar → Оформление)
             Prefs p = new Prefs();
             if (!int.TryParse(Store.Get("regionId", "27"), out p.RegionId)) p.RegionId = 27;
             p.Lang = Array.IndexOf(NamazBar.Lang.Codes, Store.Get("lang", SystemLang()));

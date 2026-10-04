@@ -356,6 +356,10 @@ namespace NamazBar
             { "min",      new[] { "daq", "дақ", "мин", "min" } },
             { "hour",     new[] { "soat", "соат", "ч", "h" } },
             { "city",     new[] { "Shahar", "Шаҳар", "Город", "City" } },
+            { "look",     new[] { "Ko'rinish", "Кўриниш", "Оформление", "Appearance" } },
+            { "skin",     new[] { "Rang mavzusi", "Ранг мавзуси", "Цветовая тема", "Color theme" } },
+            { "alerts",   new[] { "Bildirishnomalar", "Билдиришномалар", "Уведомления", "Notifications" } },
+            { "system",   new[] { "Sozlamalar", "Созламалар", "Настройки", "Settings" } },
             { "other",    new[] { "Boshqa shaharlar", "Бошқа шаҳарлар", "Другие города", "Other cities" } },
             { "lang",     new[] { "Til / Язык / Language", "Тил / Язык / Language", "Язык / Til / Language", "Language / Til / Язык" } },
             { "sync",     new[] { "islom.uz dan yangilash", "islom.uz дан янгилаш", "Обновить с islom.uz", "Update from islom.uz" } },
@@ -470,15 +474,15 @@ namespace NamazBar
     // Цвета исламского искусства: изумруд, лазурит, золото, слоновая кость; шафран и терракота — для «скоро».
     static class Palette
     {
-        public static readonly Color Emerald = Color.FromArgb(18, 94, 68);
-        public static readonly Color EmeraldDark = Color.FromArgb(10, 52, 40);
-        public static readonly Color Jade = Color.FromArgb(70, 184, 140);
-        public static readonly Color Lapis = Color.FromArgb(30, 56, 110);
-        public static readonly Color LapisDark = Color.FromArgb(14, 26, 54);
-        public static readonly Color Gold = Color.FromArgb(222, 186, 98);
-        public static readonly Color GoldDeep = Color.FromArgb(160, 118, 34);
-        public static readonly Color Ivory = Color.FromArgb(246, 238, 218);
-        public static readonly Color Ink = Color.FromArgb(40, 32, 20);
+        public static Color Emerald = Color.FromArgb(18, 94, 68);
+        public static Color EmeraldDark = Color.FromArgb(10, 52, 40);
+        public static Color Jade = Color.FromArgb(70, 184, 140);
+        public static Color Lapis = Color.FromArgb(30, 56, 110);
+        public static Color LapisDark = Color.FromArgb(14, 26, 54);
+        public static Color Gold = Color.FromArgb(222, 186, 98);
+        public static Color GoldDeep = Color.FromArgb(160, 118, 34);
+        public static Color Ivory = Color.FromArgb(246, 238, 218);
+        public static Color Ink = Color.FromArgb(40, 32, 20);
         public static readonly Color Saffron = Color.FromArgb(214, 132, 38);
         public static readonly Color Terracotta = Color.FromArgb(196, 88, 50);
 
@@ -1567,6 +1571,7 @@ namespace NamazBar
                 embedTarget = FindWindow("Shell_TrayWnd", null);
                 if (embedTarget != IntPtr.Zero) { TopLevel = false; embedded = true; parentTb = embedTarget; }
             }
+            Skin.Load();
             int lix = Array.IndexOf(Lang.Codes, Store.Get("lang", "ru"));
             Lang.Cur = lix >= 0 ? lix : 2;
             regions = Store.LoadRegions();
@@ -2277,38 +2282,41 @@ namespace NamazBar
         }
 
         ToolStripMenuItem cityMenu;
+        // Меню сгруппировано: чат · город и язык · оформление · уведомления · настройки · выход
         void BuildMenu()
         {
             if (menu != null) menu.Dispose();
             menu = new ContextMenuStrip();
-            cityMenu = new ToolStripMenuItem(Lang.T("city"));
+            MenuUi.Style(menu);
+            string sec = " " + Lang.T("sec"), mn = " " + Lang.T("min");
+
+            menu.Items.Add(MenuUi.Item(ChatT.T("menu"), "\uE8F2", delegate { ChatForm.ShowSingle(); }));
+            menu.Items.Add(new ToolStripSeparator());
+
+            cityMenu = MenuUi.Sub(Lang.T("city"), "\uE707");
             menu.Items.Add(cityMenu);
-            ToolStripMenuItem langMenu = new ToolStripMenuItem(Lang.T("lang"));
+            ToolStripMenuItem langMenu = MenuUi.Sub(Lang.T("lang"), "\uE774");
             for (int li = 0; li < Lang.Titles.Length; li++)
             {
                 int idx = li;
-                ToolStripMenuItem it = new ToolStripMenuItem(Lang.Titles[li]);
+                ToolStripMenuItem it = MenuUi.Sub(Lang.Titles[li], null);
                 it.Checked = li == Lang.Cur;
                 it.Click += delegate { SetLanguage(idx); };
                 langMenu.DropDownItems.Add(it);
             }
             menu.Items.Add(langMenu);
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(Lang.T("sync"), null, delegate { StartSync(); });
-            menu.Items.Add(Lang.T("open"), null, delegate { try { System.Diagnostics.Process.Start("https://islom.uz/taqvim"); } catch { } });
-            menu.Items.Add(ChatT.T("menu"), null, delegate { ChatForm.ShowSingle(); });
-            menu.Items.Add(new ToolStripSeparator());
-            soundItem = new ToolStripMenuItem(Lang.T("sound"));
-            soundItem.Checked = Store.Get("sound", "0") == "1";
-            soundItem.Click += delegate
+
+            // Оформление: цветовая тема, бегущая строка, положение
+            ToolStripMenuItem look = MenuUi.Sub(Lang.T("look"), "\uE790");
+            ToolStripMenuItem skins = MenuUi.Sub(Lang.T("skin"), null);
+            foreach (SkinDef sk in Skin.All)
             {
-                soundItem.Checked = !soundItem.Checked;
-                Store.Settings["sound"] = soundItem.Checked ? "1" : "0"; Store.Save();
-                if (soundItem.Checked) System.Media.SystemSounds.Asterisk.Play();
-            };
-            menu.Items.Add(soundItem);
-            ToolStripMenuItem tick = new ToolStripMenuItem(Lang.T("ticker"));
-            ToolStripMenuItem tickOn = new ToolStripMenuItem(Lang.T("tShow"));
+                SkinDef def = sk;
+                skins.DropDownItems.Add(MenuUi.Swatch(def, def.Id == Skin.CurId, delegate { SetSkin(def.Id); }));
+            }
+            look.DropDownItems.Add(skins);
+            ToolStripMenuItem tick = MenuUi.Sub(Lang.T("ticker"), null);
+            ToolStripMenuItem tickOn = MenuUi.Sub(Lang.T("tShow"), null);
             tickOn.Checked = TickerEnabled;
             tickOn.Click += delegate
             {
@@ -2319,7 +2327,6 @@ namespace NamazBar
             };
             tick.DropDownItems.Add(tickOn);
             tick.DropDownItems.Add(new ToolStripSeparator());
-            string sec = " " + Lang.T("sec"), mn = " " + Lang.T("min");
             AddChoice(tick, Lang.T("tEvery"), "tickerEvery", 10, new double[] { 10, 20, 30, 60, 120, 0 },
                 new string[] { "10" + sec, "20" + sec, "30" + sec, "1" + mn, "2" + mn, Lang.T("off") });
             AddChoice(tick, Lang.T("tBefore"), "tickerBefore", 1, new double[] { 0, 0.5, 1, 2, 3 },
@@ -2328,34 +2335,9 @@ namespace NamazBar
                 new string[] { "0" + sec, "1" + sec, "2" + sec, "3" + sec, "5" + sec });
             AddChoice(tick, Lang.T("tSpeed"), "tickerSpeed", 55, new double[] { 35, 55, 80 },
                 new string[] { Lang.T("slow"), Lang.T("normal"), Lang.T("fast") });
-            menu.Items.Add(tick);
-            ToolStripMenuItem showCur = new ToolStripMenuItem(Lang.T("showCur"));
-            AddChoice(showCur, null, "showCurrent", 40, new double[] { 15, 20, 30, 40, 60 },
-                new string[] { "15" + mn, "20" + mn, "30" + mn, "40" + mn, "60" + mn });
-            menu.Items.Add(showCur);
-            ToolStripMenuItem cardItem = new ToolStripMenuItem(Words.T("card"));
-            cardItem.Checked = Store.Get("card", "1") == "1";
-            cardItem.Click += delegate { cardItem.Checked = !cardItem.Checked; Store.Settings["card"] = cardItem.Checked ? "1" : "0"; Store.Save(); };
-            menu.Items.Add(cardItem);
-            ToolStripMenuItem brk = new ToolStripMenuItem(Words.T("breakM"));
-            // для каждого намаза своя длительность блокировки: 10 / 15 / 20 минут
-            string[] brkLabels = new string[BreakChoices.Length];
-            double[] brkValues = new double[BreakChoices.Length];
-            for (int i = 0; i < BreakChoices.Length; i++) { brkValues[i] = BreakChoices[i]; brkLabels[i] = string.Format(Words.T("screen"), BreakChoices[i]); }
-            for (int p = 0; p < 6; p++)
-                if (BreakDefault[p] > 0)
-                    AddChoice(brk, Lang.Names[p] + " — " + string.Format(Words.T("screen"), BreakMinutes(p)), "break" + p, BreakDefault[p], brkValues, brkLabels);
-            menu.Items.Add(brk);
-            menu.Items.Add(Lang.T("test"), null, delegate
-            {
-                StartAlert(TimeSpan.FromSeconds(20), true);
-                ShowCard(view.Name, view.Time, 0);
-            });
-            ToolStripMenuItem auto = new ToolStripMenuItem(Lang.T("autorun"));
-            auto.Checked = IsAutostart();
-            auto.Click += delegate { SetAutostart(!auto.Checked); auto.Checked = IsAutostart(); };
-            menu.Items.Add(auto);
-            ToolStripMenuItem emb = new ToolStripMenuItem(Lang.T("embed"));
+            look.DropDownItems.Add(tick);
+            look.DropDownItems.Add(new ToolStripSeparator());
+            ToolStripMenuItem emb = MenuUi.Sub(Lang.T("embed"), null);
             emb.Checked = Store.Get("embed", "1") == "1";
             emb.Click += delegate
             {
@@ -2363,20 +2345,79 @@ namespace NamazBar
                 try { System.Diagnostics.Process.Start(Application.ExecutablePath, "/restart"); } catch { }
                 Environment.Exit(0);
             };
-            menu.Items.Add(emb);
-            menu.Items.Add(Lang.T("reset"), null, delegate { offsetX = DefaultOffset(); Store.Settings.Remove("offsetX"); Store.Save(); PlaceOnTaskbar(); });
+            look.DropDownItems.Add(emb);
+            look.DropDownItems.Add(MenuUi.Item(Lang.T("reset"), null, delegate { offsetX = DefaultOffset(); Store.Settings.Remove("offsetX"); Store.Save(); PlaceOnTaskbar(); }));
+            menu.Items.Add(look);
+
+            // Уведомления: звук, карточка, перерыв
+            ToolStripMenuItem notif = MenuUi.Sub(Lang.T("alerts"), "\uEA8F");
+            soundItem = MenuUi.Sub(Lang.T("sound"), null);
+            soundItem.Checked = Store.Get("sound", "0") == "1";
+            soundItem.Click += delegate
+            {
+                soundItem.Checked = !soundItem.Checked;
+                Store.Settings["sound"] = soundItem.Checked ? "1" : "0"; Store.Save();
+                if (soundItem.Checked) System.Media.SystemSounds.Asterisk.Play();
+            };
+            notif.DropDownItems.Add(soundItem);
+            ToolStripMenuItem cardItem = MenuUi.Sub(Words.T("card"), null);
+            cardItem.Checked = Store.Get("card", "1") == "1";
+            cardItem.Click += delegate { cardItem.Checked = !cardItem.Checked; Store.Settings["card"] = cardItem.Checked ? "1" : "0"; Store.Save(); };
+            notif.DropDownItems.Add(cardItem);
+            ToolStripMenuItem showCur = MenuUi.Sub(Lang.T("showCur"), null);
+            AddChoice(showCur, null, "showCurrent", 40, new double[] { 15, 20, 30, 40, 60 },
+                new string[] { "15" + mn, "20" + mn, "30" + mn, "40" + mn, "60" + mn });
+            notif.DropDownItems.Add(showCur);
+            ToolStripMenuItem brk = MenuUi.Sub(Words.T("breakM"), null);
+            // для каждого намаза своя длительность блокировки: 10 / 15 / 20 минут
+            string[] brkLabels = new string[BreakChoices.Length];
+            double[] brkValues = new double[BreakChoices.Length];
+            for (int i = 0; i < BreakChoices.Length; i++) { brkValues[i] = BreakChoices[i]; brkLabels[i] = string.Format(Words.T("screen"), BreakChoices[i]); }
+            for (int p = 0; p < 6; p++)
+                if (BreakDefault[p] > 0)
+                    AddChoice(brk, Lang.Names[p] + " — " + string.Format(Words.T("screen"), BreakMinutes(p)), "break" + p, BreakDefault[p], brkValues, brkLabels);
+            notif.DropDownItems.Add(brk);
+            notif.DropDownItems.Add(new ToolStripSeparator());
+            notif.DropDownItems.Add(MenuUi.Item(Lang.T("test"), null, delegate
+            {
+                StartAlert(TimeSpan.FromSeconds(20), true);
+                ShowCard(view.Name, view.Time, 0);
+            }));
+            menu.Items.Add(notif);
+
+            // Настройки: автозапуск, данные islom.uz
+            ToolStripMenuItem sys = MenuUi.Sub(Lang.T("system"), "\uE713");
+            ToolStripMenuItem auto = MenuUi.Sub(Lang.T("autorun"), null);
+            auto.Checked = IsAutostart();
+            auto.Click += delegate { SetAutostart(!auto.Checked); auto.Checked = IsAutostart(); };
+            sys.DropDownItems.Add(auto);
+            sys.DropDownItems.Add(new ToolStripSeparator());
+            sys.DropDownItems.Add(MenuUi.Item(Lang.T("sync"), "\uE895", delegate { StartSync(); }));
+            sys.DropDownItems.Add(MenuUi.Item(Lang.T("open"), "\uE71B", delegate { try { System.Diagnostics.Process.Start("https://islom.uz/taqvim"); } catch { } }));
+            menu.Items.Add(sys);
+
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(Lang.T("exit"), null, delegate { Application.Exit(); });
+            menu.Items.Add(MenuUi.Item(Lang.T("exit"), "\uE7E8", delegate { Application.Exit(); }));
+        }
+
+        void SetSkin(string id)
+        {
+            Skin.Apply(id);
+            Store.Settings["skin"] = id; Store.Save();
+            ApplyTheme();
+            BuildMenu();
+            if (ChatForm.IsOpen) { ChatForm.CloseIfOpen(); ChatForm.ShowSingle(); }
+            lastKey = null; Recalc(); UpdateTooltip(); PlaceOnTaskbar(); Redraw();
         }
 
         void AddChoice(ToolStripMenuItem parent, string title, string key, double def, double[] values, string[] labels)
         {
-            ToolStripMenuItem sub = title == null ? parent : new ToolStripMenuItem(title);
+            ToolStripMenuItem sub = title == null ? parent : MenuUi.Sub(title, null);
             double cur = Cfg(key, def);
             for (int i = 0; i < values.Length; i++)
             {
                 double v = values[i];
-                ToolStripMenuItem it = new ToolStripMenuItem(labels[i]);
+                ToolStripMenuItem it = MenuUi.Sub(labels[i], null);
                 it.Checked = Math.Abs(cur - v) < 0.001;
                 it.Click += delegate
                 {
@@ -2398,13 +2439,13 @@ namespace NamazBar
             foreach (Region r in regions)
             {
                 Region rr = r;
-                ToolStripMenuItem it = new ToolStripMenuItem(Lang.City(r));
+                ToolStripMenuItem it = MenuUi.Sub(Lang.City(r), null);
                 it.Checked = region != null && region.Id == r.Id;
                 it.Click += delegate { SelectRegion(rr.Id, true); lastPeriod = int.MinValue; Recalc(); UpdateTooltip(); };
                 if (r.Order < 100) cityMenu.DropDownItems.Add(it);
                 else
                 {
-                    if (more == null) more = new ToolStripMenuItem(Lang.T("other"));
+                    if (more == null) more = MenuUi.Sub(Lang.T("other"), null);
                     more.DropDownItems.Add(it);
                 }
             }
