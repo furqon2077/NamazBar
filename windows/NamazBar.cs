@@ -478,6 +478,7 @@ namespace NamazBar
         public static Color EmeraldDark = Color.FromArgb(10, 52, 40);
         public static Color Jade = Color.FromArgb(70, 184, 140);
         public static Color Lapis = Color.FromArgb(30, 56, 110);
+        public static Color LapisHi = Color.FromArgb(84, 118, 184);   // светлый отсвет циферблата «до следующего намаза» (зависит от скина)
         public static Color LapisDark = Color.FromArgb(14, 26, 54);
         public static Color Gold = Color.FromArgb(222, 186, 98);
         public static Color GoldDeep = Color.FromArgb(160, 118, 34);
@@ -766,7 +767,7 @@ namespace NamazBar
             // 2. Ореол вокруг циферблата. Изумруд — идёт намаз, лазурит — отсчёт до следующего,
             //    шафран — восход или меньше 10 минут до следующего
             Color baseC = Countdown ? (WarnSoon ? Amber : Palette.Lapis) : (Sunrise ? Amber : Green);
-            Color hiC = Countdown ? (WarnSoon ? Color.FromArgb(240, 178, 84) : Color.FromArgb(84, 118, 184))
+            Color hiC = Countdown ? (WarnSoon ? Color.FromArgb(240, 178, 84) : Palette.LapisHi)
                                   : (Sunrise ? Color.FromArgb(240, 178, 84) : GreenHi);
             if (Alert)
             {
@@ -2234,7 +2235,7 @@ namespace NamazBar
                 else if (view.Alert) StopAlert();          // клик гасит подсветку
                 dragging = false;
             }
-            else if (e.Button == MouseButtons.Right) { RebuildCityMenu(); menu.Show(Cursor.Position); }
+            else if (e.Button == MouseButtons.Right) { RebuildCityMenu(); ChatMenu.Rebuild(chatMenu); menu.Show(Cursor.Position); }
             base.OnMouseUp(e);
         }
 
@@ -2281,7 +2282,7 @@ namespace NamazBar
             lastKey = null; Recalc(); UpdateTooltip(); Redraw();
         }
 
-        ToolStripMenuItem cityMenu;
+        ToolStripMenuItem cityMenu, chatMenu;
         // Меню сгруппировано: чат · город и язык · оформление · уведомления · настройки · выход
         void BuildMenu()
         {
@@ -2290,7 +2291,9 @@ namespace NamazBar
             MenuUi.Style(menu);
             string sec = " " + Lang.T("sec"), mn = " " + Lang.T("min");
 
-            menu.Items.Add(MenuUi.Item(ChatT.T("menu"), "\uE8F2", delegate { ChatForm.ShowSingle(); }));
+            chatMenu = MenuUi.Sub(ChatT.T("menu"), "\uE8F2");   // наполняется при показе меню: участники группы, быстрые фразы
+            ChatMenu.Rebuild(chatMenu);
+            menu.Items.Add(chatMenu);
             menu.Items.Add(new ToolStripSeparator());
 
             cityMenu = MenuUi.Sub(Lang.T("city"), "\uE707");

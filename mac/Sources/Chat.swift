@@ -57,6 +57,8 @@ enum ChatT {
         "online":    ["%d onlayn", "%d онлайн", "%d онлайн", "%d online"],
         "pick":      ["Rasm tanlash", "Расм танлаш", "Выбрать фото", "Choose picture"],
         "you":       ["Siz", "Сиз", "Вы", "You"],
+        "send":      ["Xabar yuborish", "Хабар юбориш", "Отправить сообщение", "Send a message"],
+        "openWin":   ["Chat oynasini ochish…", "Чат ойнасини очиш…", "Открыть окно чата…", "Open chat window…"],
         "ok":        ["OK", "OK", "OK", "OK"],
         "cancel":    ["Bekor qilish", "Бекор қилиш", "Отмена", "Cancel"],
     ]
@@ -401,6 +403,90 @@ struct AvatarView: View {
         }
         .frame(width: size, height: size).clipShape(Circle())
         .overlay(Circle().stroke(Color.black.opacity(0.25), lineWidth: 1))
+    }
+}
+
+// ───────── Чат прямо в меню ─────────
+/// Строка участника: круглый аватар, ник, справа точка (зелёная — онлайн, серая — нет)
+struct MemberRow: View {
+    let member: ChatMember
+    var body: some View {
+        HStack(spacing: 10) {
+            AvatarView(userId: member.userId, nick: member.nick, avatar: member.avatar, size: 22)
+                .opacity(member.online ? 1 : 0.45)
+            Text(member.nick).font(.system(size: 13)).foregroundColor(.primary).opacity(member.online ? 1 : 0.5).lineLimit(1)
+            Spacer(minLength: 6)
+            Circle().fill(member.online ? Color.green : Color.gray).frame(width: 9, height: 9)
+        }
+        .padding(.horizontal, 14)
+        .frame(width: 250, height: 30)
+    }
+}
+
+extension AppDelegate {
+    /// Подменю «Чат»: группы с участниками (онлайн сверху, офлайн снизу), быстрые фразы, управление
+    func fillChatMenu(_ m: NSMenu) {
+        m.removeAllItems()
+        let hub = ChatHub.shared
+        if !hub.configured {
+            m.addItem(item(ChatT.T("setup"), #selector(openChat)))
+            return
+        }
+        if !hub.connected {
+            let st = NSMenuItem(title: ChatT.T("connecting"), action: nil, keyEquivalent: ""); st.isEnabled = false
+            m.addItem(st)
+        }
+        for g in hub.groups {
+            let head = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            head.attributedTitle = NSAttributedString(string: "\(g.name)  ·  \(g.onlineCount)/\(g.members.count)",
+                                                      attributes: [.font: NSFont.boldSystemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor])
+            head.isEnabled = false
+            m.addItem(head)
+            let sorted = g.members.sorted { a, b in
+                a.online != b.online ? a.online : a.nick.localizedCaseInsensitiveCompare(b.nick) == .orderedAscending
+            }
+            for mem in sorted {
+                let it = NSMenuItem()
+                let host = NSHostingView(rootView: MemberRow(member: mem))
+                host.frame = NSRect(x: 0, y: 0, width: 250, height: 30)
+                it.view = host
+                m.addItem(it)
+            }
+        }
+        if !hub.groups.isEmpty { m.addItem(.separator()) }
+        if hub.connected {
+            for g in hub.groups {
+                let title = hub.groups.count > 1 ? ChatT.T("send") + " → " + g.name : ChatT.T("send")
+                let send = NSMenuItem(title: title, action: nil, keyEquivalent: ""); send.submenu = NSMenu()
+                for id in ChatT.presetIds {
+                    send.submenu!.addItem(item(ChatT.preset(id, id), #selector(sendPresetFromMenu(_:)), false, [g.code, id]))
+                }
+                m.addItem(send)
+            }
+            m.addItem(item(ChatT.T("create") + "…", #selector(chatCreateGroup)))
+            m.addItem(item(ChatT.T("join") + "…", #selector(chatJoinGroup)))
+            m.addItem(.separator())
+        }
+        m.addItem(item(ChatT.T("openWin"), #selector(openChat)))
+    }
+
+    @objc func sendPresetFromMenu(_ s: NSMenuItem) {
+        if let a = s.representedObject as? [String], a.count == 2 { ChatHub.shared.sendPreset(a[0], a[1]) }
+    }
+    @objc func chatCreateGroup() { if let n = promptText(ChatT.T("create"), ChatT.T("newName")) { ChatHub.shared.createGroup(n) } }
+    @objc func chatJoinGroup() { if let c = promptText(ChatT.T("join"), ChatT.T("enterCode")) { ChatHub.shared.requestJoin(c) } }
+
+    func promptText(_ title: String, _ label: String) -> String? {
+        let a = NSAlert()
+        a.messageText = title; a.informativeText = label
+        let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        a.accessoryView = tf
+        a.addButton(withTitle: ChatT.T("ok")); a.addButton(withTitle: ChatT.T("cancel"))
+        NSApp.activate(ignoringOtherApps: true)
+        a.window.initialFirstResponder = tf
+        guard a.runModal() == .alertFirstButtonReturn else { return nil }
+        let v = tf.stringValue.trimmingCharacters(in: .whitespaces)
+        return v.isEmpty ? nil : v
     }
 }
 
