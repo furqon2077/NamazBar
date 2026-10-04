@@ -1,11 +1,9 @@
 ## ru
-* Обновление из программы: пункт меню «Версия» → «Проверить обновления», уведомление о новом релизе с описанием, загрузка и установка в один клик
-* Статус сервера чата (активен / подключается / в спячке / недоступен) на экране чата и в настройках, кнопка «Проверить / разбудить»
-* Чат: иконка «копировать» рядом с кодом группы, кнопка «Очистить чат» для владельца группы, окно можно вытянуть вверх за верхнюю кромку
-* В меню показывается номер версии
+* Расписание больше не растягивает плашку на панели задач и не перекрывает «Пуск»: оно появляется отдельной строкой над виджетом по клику на плашку, по кнопке ⟳ или из меню «Бегущая строка» → «Показать расписание сейчас»
+* По умолчанию табло выключено, паузы 0 с, скорость быстрая
+* Умная длина плашки: на маленьких экранах короткий вариант, на больших — полный; можно выбрать вручную в меню «Вид» → «Размер на панели»
 
 ## en
-* In-app updates: Version menu → Check for updates, a notification about each new release with what's new, one-click download and install
-* Chat server status (active / connecting / asleep / unreachable) on the chat screen and in settings, with a Check / wake button
-* Chat: copy icon next to the group code, Clear chat for the group owner, drag the top edge to make the window taller
-* The menu shows the version number
+* The schedule no longer widens the taskbar widget or covers the Start button: it appears as a separate strip above the widget when you click the widget, press ⟳, or choose Ticker → Show the schedule now
+* Defaults: ticker off, 0 s pauses, fast speed
+* Smart widget length: a short variant on small screens, the full one on large screens; choose manually in Look → Size on the taskbar
