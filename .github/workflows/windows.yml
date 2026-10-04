@@ -20,7 +20,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Windows App Runtime 1.8 (needed to compile the lock-screen widget)
         shell: pwsh
@@ -63,7 +63,7 @@ jobs:
         working-directory: windows
         run: build.bat /pack < nul
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: NamazBar-windows
           path: windows/release/NamazBar.exe

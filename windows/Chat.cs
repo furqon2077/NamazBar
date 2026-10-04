@@ -213,7 +213,7 @@ namespace NamazBar
         public static void Start()
         {
             sync = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
-            Server = Store.Get("chatServer", "").Trim();
+            Server = NormalizeServer(Store.Get("chatServer", ""));
             Nick = Store.Get("chatNick", "").Trim();
             UserId = Store.Get("chatUserId", "");
             if (UserId.Length < 16)
@@ -253,9 +253,23 @@ namespace NamazBar
 
         public static void Stop() { Disconnect(); }
 
+        // «example.onrender.com», «https://…» и «wss://…» без пути приводим к рабочему wss://…/ws
+        public static string NormalizeServer(string s)
+        {
+            s = (s ?? "").Trim();
+            if (s.Length == 0) return s;
+            if (s.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) s = "wss://" + s.Substring(8);
+            else if (s.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) s = "ws://" + s.Substring(7);
+            else if (s.IndexOf("://", StringComparison.Ordinal) < 0) s = "wss://" + s;
+            Uri u;
+            if (Uri.TryCreate(s, UriKind.Absolute, out u) && (u.AbsolutePath == "/" || u.AbsolutePath.Length == 0) && u.Query.Length == 0)
+                s = s.TrimEnd('/') + "/ws";
+            return s;
+        }
+
         public static void Configure(string server, string nick)
         {
-            Store.Settings["chatServer"] = (server ?? "").Trim();
+            Store.Settings["chatServer"] = NormalizeServer(server);
             Store.Settings["chatNick"] = (nick ?? "").Trim();
             Store.Save();
             string oldServer = Server;
@@ -715,6 +729,8 @@ namespace NamazBar
         readonly List<Button> presetBtns = new List<Button>();
         Font fName, fText, fSmall, fBold;
         string statusText = ""; bool statusError;
+        DateTime noticeAt = DateTime.MinValue;   // момент последнего сообщения-события; через 8 с показываем состояние соединения
+        System.Windows.Forms.Timer statusTimer;
         int lastWidth;
 
         int S(int v) { return (int)Math.Round(v * k); }
@@ -735,7 +751,10 @@ namespace NamazBar
             Font = fText;
             Build();
             Chat.Changed += OnChanged; Chat.Notice += OnNotice;
-            FormClosed += delegate { Chat.Changed -= OnChanged; Chat.Notice -= OnNotice; Chat.Active = null; };
+            statusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            statusTimer.Tick += delegate { RefreshStatus(); };
+            statusTimer.Start();
+            FormClosed += delegate { statusTimer.Stop(); Chat.Changed -= OnChanged; Chat.Notice -= OnNotice; Chat.Active = null; };
             Load += delegate { if (Chat.Groups.Count > 0) lstGroups.SelectedIndex = 0; OnChanged(); };
         }
 
@@ -759,7 +778,7 @@ namespace NamazBar
             tbServer = new TextBox { Text = Chat.Server ?? "", Bounds = new Rectangle(S(284), S(28), S(300), S(26)) };
             btnSave = Flat(ChatT.T("save"), Palette.Gold, Palette.Ink);
             btnSave.Bounds = new Rectangle(S(596), S(26), S(100), S(30));
-            btnSave.Click += delegate { Chat.Configure(tbServer.Text, tbNick.Text); };
+            btnSave.Click += delegate { noticeAt = DateTime.MinValue; Chat.Configure(tbServer.Text, tbNick.Text); tbServer.Text = Chat.Server ?? ""; };
             lblStatus = new Label { ForeColor = Palette.Ivory, Font = fSmall, AutoSize = false, Bounds = new Rectangle(S(88), S(62), S(600), S(22)) };
             header.Controls.AddRange(new Control[] { pbAvatar, lblNick, tbNick, lblServer, tbServer, btnSave, lblStatus });
 
@@ -843,9 +862,7 @@ namespace NamazBar
                 else if (Chat.Groups.Count > 0) lstGroups.SelectedIndex = 0;
                 lstGroups.EndUpdate();
                 SelectGroup();
-                if (!Chat.Configured) SetStatus(ChatT.T("setup"), true);
-                else if (statusText.Length == 0 || statusText == ChatT.T("setup")) SetStatus(Chat.Connected ? ChatT.T("connected") : ChatT.T("connecting"), !Chat.Connected && false);
-                else if (statusText == ChatT.T("connected") || statusText == ChatT.T("connecting")) SetStatus(Chat.Connected ? ChatT.T("connected") : ChatT.T("connecting"), false);
+                RefreshStatus();
                 pbAvatar.Invalidate();
                 bool can = Chat.Connected && Current != null;
                 foreach (Button b in presetBtns) b.Enabled = can;
@@ -855,7 +872,16 @@ namespace NamazBar
             finally { updating = false; }
         }
 
-        void OnNotice(string text, bool error) { SetStatus(text, error); }
+        void OnNotice(string text, bool error) { SetStatus(text, error); noticeAt = DateTime.Now; }
+
+        // Событие (ошибка, «ожидание подтверждения») показываем 8 секунд, дальше — состояние соединения
+        void RefreshStatus()
+        {
+            if (IsDisposed) return;
+            if (!Chat.Configured) { SetStatus(ChatT.T("setup"), true); return; }
+            if ((DateTime.Now - noticeAt).TotalSeconds > 8)
+                SetStatus(Chat.Connected ? ChatT.T("connected") : ChatT.T("connecting"), false);
+        }
         void SetStatus(string text, bool error)
         {
             statusText = text; statusError = error;

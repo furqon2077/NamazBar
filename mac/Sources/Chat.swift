@@ -109,7 +109,7 @@ final class ChatHub: ObservableObject {
     private var avatarFile: URL { Store.dir.appendingPathComponent("avatar.txt") }
 
     func start() {
-        server = Store.get("chatServer", "").trimmingCharacters(in: .whitespaces)
+        server = Self.normalizeServer(Store.get("chatServer", ""))
         nick = Store.get("chatNick", "").trimmingCharacters(in: .whitespaces)
         userId = Store.get("chatUserId", "")
         if userId.count < 16 {
@@ -126,8 +126,23 @@ final class ChatHub: ObservableObject {
         connect()
     }
 
+    /// «example.onrender.com», «https://…» и «wss://…» без пути приводим к рабочему wss://…/ws
+    static func normalizeServer(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespaces)
+        if s.isEmpty { return s }
+        let lower = s.lowercased()
+        if lower.hasPrefix("https://") { s = "wss://" + s.dropFirst(8) }
+        else if lower.hasPrefix("http://") { s = "ws://" + s.dropFirst(7) }
+        else if !s.contains("://") { s = "wss://" + s }
+        if let u = URL(string: s), (u.path.isEmpty || u.path == "/"), u.query == nil {
+            while s.hasSuffix("/") { s.removeLast() }
+            s += "/ws"
+        }
+        return s
+    }
+
     func configure(server: String, nick: String) {
-        let s = server.trimmingCharacters(in: .whitespaces), n = nick.trimmingCharacters(in: .whitespaces)
+        let s = Self.normalizeServer(server), n = nick.trimmingCharacters(in: .whitespaces)
         let changed = s != self.server
         Store.set("chatServer", s); Store.set("chatNick", n)
         self.server = s; self.nick = n
@@ -460,7 +475,7 @@ struct ChatView: View {
                 HStack(alignment: .bottom, spacing: 10) {
                     field(ChatT.T("nick"), $nickField, width: 170)
                     field(ChatT.T("server"), $serverField, width: 300)
-                    Button(ChatT.T("save")) { hub.configure(server: serverField, nick: nickField) }
+                    Button(ChatT.T("save")) { hub.configure(server: serverField, nick: nickField); serverField = hub.server }
                         .keyboardShortcut(.defaultAction)
                 }
                 Text(hub.configured ? hub.status : ChatT.T("setup"))
