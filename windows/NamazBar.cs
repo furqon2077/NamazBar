@@ -561,8 +561,10 @@ namespace NamazBar
         public static TickerFlyout Current;
         readonly View v; readonly double before, after; readonly float speed; readonly Action closed;
         readonly DateTime t0 = DateTime.Now;
-        float scrollMax, x; int pad;
+        readonly double scrollT;
+        float dy, x; int alpha, pad; bool scrolling;
         System.Windows.Forms.Timer timer;
+        const double Slide = 0.35, Hold = 1.2, EndHold = 1.6;
 
         public static void ShowFor(View v, Rectangle widget, double before, double after, float speed, Action closed)
         {
@@ -571,40 +573,51 @@ namespace NamazBar
             Current.Show();
         }
 
+        static float EaseOut(double t) { t = Math.Max(0, Math.Min(1, t)); return (float)(1 - Math.Pow(1 - t, 3)); }
+        static float EaseIn(double t) { t = Math.Max(0, Math.Min(1, t)); return (float)(t * t * t); }
+
         TickerFlyout(View v, Rectangle widget, double before, double after, float speed, Action closed)
         {
             this.v = v; this.before = before; this.after = after; this.speed = speed; this.closed = closed;
             AutoScaleMode = AutoScaleMode.None;
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
             DoubleBuffered = true;
-            Color bg = v.Light ? Color.FromArgb(252, 252, 250) : Color.FromArgb(32, 33, 36);
-            BackColor = bg;
+            BackColor = v.Light ? Color.FromArgb(252, 252, 250) : Color.FromArgb(32, 33, 36);
             float k = v.Dpi;
-            pad = (int)Math.Round(14 * k);
+            pad = (int)Math.Round(12 * k);
             Rectangle wa = (widget.Width > 0 ? Screen.FromRectangle(widget) : Screen.PrimaryScreen).WorkingArea;
-            int maxW = Math.Max((int)(200 * k), wa.Width - 16);
-            int want = (int)Math.Ceiling(v.ScheduleW) + 2 * pad;
-            int W = Math.Min(Math.Min(want, (int)Math.Round(480 * k)), maxW), H = (int)Math.Round(34 * k);
-            scrollMax = Math.Max(0, want - W);
-            x = pad;
+            int sw; using (Graphics g = CreateGraphics()) sw = (int)Math.Ceiling(v.StaticWidth(g));
+            int W = Math.Max((int)Math.Round(240 * k), Math.Min(sw + 2 * pad + (int)Math.Round(8 * k), Math.Min((int)Math.Round(380 * k), wa.Width - 16)));
+            int H = (int)Math.Round(26 * k);
+            scrollT = speed > 0 ? (W + v.ScheduleW) / (speed * k) : 0;
             int left = widget.Width > 0 ? widget.Left : wa.Right - W - 12;
-            int bottom = widget.Width > 0 ? widget.Top - (int)Math.Round(8 * k) : wa.Bottom - 12;
+            int bottom = widget.Width > 0 ? widget.Top - (int)Math.Round(6 * k) : wa.Bottom - 12;
             Bounds = new Rectangle(Math.Max(wa.Left + 8, Math.Min(left, wa.Right - W - 8)), Math.Max(wa.Top + 8, bottom - H), W, H);
             try { using (GraphicsPath p = Rounded(new Rectangle(0, 0, W, H), H / 2)) Region = new System.Drawing.Region(p); } catch { }
+            dy = -H; alpha = 0;
             Click += delegate { Close(); };
             FormClosed += delegate { if (timer != null) timer.Stop(); Current = null; if (this.closed != null) this.closed(); };
-            timer = new System.Windows.Forms.Timer { Interval = 30 };
-            timer.Tick += delegate
-            {
-                double t = (DateTime.Now - t0).TotalSeconds;
-                double scrollT = scrollMax > 0 && speed > 0 ? scrollMax / (speed * k) : 0;
-                double scroll = Math.Max(0, Math.Min(scrollT, t - before));
-                x = pad - (scrollT > 0 ? (float)(scroll / scrollT * scrollMax) : 0);
-                // в конце задержка не короче 2,5 с, чтобы последние слова успели прочитать
-                if (t >= before + scrollT + Math.Max(after, 2.5)) { Close(); return; }
-                Invalidate();
-            };
+            timer = new System.Windows.Forms.Timer { Interval = 25 };
+            timer.Tick += delegate { Step((DateTime.Now - t0).TotalSeconds); Invalidate(); };
             timer.Start();
+        }
+
+        // Как в прежней строке: «следующий намаз» плавно опускается сверху, затем уходит вниз, расписание пробегает справа налево
+        // через всю строку, и «следующий намаз» снова опускается сверху
+        void Step(double t)
+        {
+            int H = Height;
+            double inEnd = Slide, holdEnd = inEnd + Hold + before, outEnd = holdEnd + Slide, runEnd = outEnd + scrollT, gapEnd = runEnd + Math.Max(0, after);
+            double backEnd = gapEnd + Slide, end = backEnd + EndHold;
+            scrolling = false;
+            if (t < inEnd) { dy = -(1f - EaseOut(t / Slide)) * H; alpha = (int)(255 * Math.Min(1, t / Slide)); }
+            else if (t < holdEnd) { dy = 0; alpha = 255; }
+            else if (t < outEnd) { double u = (t - holdEnd) / Slide; dy = EaseIn(u) * H; alpha = (int)(255 * (1 - u)); }
+            else if (t < runEnd) { scrolling = true; alpha = 0; x = Width - (float)((t - outEnd) * speed * v.Dpi); }
+            else if (t < gapEnd) { alpha = 0; }
+            else if (t < backEnd) { double u = (t - gapEnd) / Slide; dy = -(1f - EaseOut(u)) * H; alpha = (int)(255 * u); }
+            else if (t < end) { dy = 0; alpha = 255; }
+            else Close();
         }
 
         protected override CreateParams CreateParams { get { CreateParams cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x80; return cp; } }   // не забирает фокус, нет в Alt+Tab
@@ -625,9 +638,10 @@ namespace NamazBar
             using (Pen pen = new Pen(Color.FromArgb(v.WarnSoon ? 255 : 210, v.Orange), 1.2f))
             using (GraphicsPath p = Rounded(new Rectangle(0, 0, Width - 1, Height - 1), Height / 2)) g.DrawPath(pen, p);
             RectangleF box = new RectangleF(0, 0, Width, Height);
-            g.SetClip(new RectangleF(pad * 0.6f, 2, Width - pad * 1.2f, Height - 4));
+            g.SetClip(new RectangleF(pad * 0.5f, 1.5f, Width - pad, Height - 3));
             float baseY = (Height + v.ScheduleHeight(g)) / 2f;
-            v.DrawSchedule(g, box, x, baseY);
+            if (scrolling) v.DrawSchedule(g, box, x, baseY);
+            else if (alpha > 0) v.DrawStatic(g, box, dy, alpha, baseY);
         }
     }
 
@@ -786,7 +800,16 @@ namespace NamazBar
         Font ElapsedFont { get { return Countdown ? ChipFont : SubFont; } }
 
         public Color ScheduleText { get { return WarnSoon ? (Light ? Color.FromArgb(150, 70, 0) : Color.FromArgb(255, 214, 170)) : (Light ? Color.FromArgb(60, 60, 60) : Color.FromArgb(232, 235, 238)); } }
-        public float ScheduleHeight(Graphics g) { return Cap(g, ChipFont) + Desc(g, ChipFont); }
+        public float ScheduleHeight(Graphics g) { return Cap(g, ChipFont); }   // высота заглавной буквы — по ней центрируем строку
+        public float StaticWidth(Graphics g) { return M(g, Sub, ChipFont).Width; }
+        // «Следующий намаз · через …» по центру строки; dy — сдвиг по вертикали, alpha 0..255 (плавное появление сверху / уход вниз)
+        public void DrawStatic(Graphics g, RectangleF box, float dy, int alpha, float baseY)
+        {
+            StringFormat sf = StringFormat.GenericTypographic;
+            float w = M(g, Sub, ChipFont).Width;
+            using (SolidBrush b = new SolidBrush(Color.FromArgb(Math.Max(0, Math.Min(255, alpha)), ScheduleText)))
+                g.DrawString(Sub, ChipFont, b, box.X + (box.Width - w) / 2f, baseY - Asc(g, ChipFont) + dy, sf);
+        }
 
         // Расписание на сегодня одной строкой: «Сегодня  Бомдод 05:12 · Қуёш 06:34 · …» (рисует всплывающая строка над виджетом)
         public void DrawSchedule(Graphics g, RectangleF box, float x, float baseY)
