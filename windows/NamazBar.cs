@@ -591,7 +591,7 @@ namespace NamazBar
             int H = (int)Math.Round(26 * k);
             scrollT = speed > 0 ? (W + v.ScheduleW) / (speed * k) : 0;
             int left = widget.Width > 0 ? widget.Left : wa.Right - W - 12;
-            int bottom = widget.Width > 0 ? widget.Top - (int)Math.Round(6 * k) : wa.Bottom - 12;
+            int bottom = widget.Width > 0 ? widget.Top - (int)Math.Round(14 * k) : wa.Bottom - 12;
             Bounds = new Rectangle(Math.Max(wa.Left + 8, Math.Min(left, wa.Right - W - 8)), Math.Max(wa.Top + 8, bottom - H), W, H);
             try { using (GraphicsPath p = Rounded(new Rectangle(0, 0, W, H), H / 2)) Region = new System.Drawing.Region(p); } catch { }
             dy = -H; alpha = 0;
@@ -635,8 +635,6 @@ namespace NamazBar
         {
             Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            using (Pen pen = new Pen(Color.FromArgb(v.WarnSoon ? 255 : 210, v.Orange), 1.2f))
-            using (GraphicsPath p = Rounded(new Rectangle(0, 0, Width - 1, Height - 1), Height / 2)) g.DrawPath(pen, p);
             RectangleF box = new RectangleF(0, 0, Width, Height);
             g.SetClip(new RectangleF(pad * 0.5f, 1.5f, Width - pad, Height - 3));
             float baseY = (Height + v.ScheduleHeight(g)) / 2f;
