@@ -57,6 +57,12 @@ enum ChatT {
         "online":    ["%d onlayn", "%d онлайн", "%d онлайн", "%d online"],
         "pick":      ["Rasm tanlash", "Расм танлаш", "Выбрать фото", "Choose picture"],
         "you":       ["Siz", "Сиз", "Вы", "You"],
+        "settings":  ["Sozlamalar", "Созламалар", "Настройки", "Settings"],
+        "copied":    ["Kod nusxalandi", "Код нусхаланди", "Код скопирован", "Code copied"],
+        "today":     ["Bugun", "Бугун", "Сегодня", "Today"],
+        "yesterday": ["Kecha", "Кеча", "Вчера", "Yesterday"],
+        "quick":     ["Tezkor xabarlar", "Тезкор хабарлар", "Быстрые сообщения", "Quick messages"],
+        "noGroupHint": ["Kodni do'stlaringizga yuboring: ular qo'shilishni so'raydi, siz tasdiqlaysiz.", "Кодни дўстларингизга юборинг: улар қўшилишни сўрайди, сиз тасдиқлайсиз.", "Отправьте код друзьям: они попросятся в группу, а вы подтвердите.", "Share the code with friends: they ask to join and you approve."],
         "send":      ["Xabar yuborish", "Хабар юбориш", "Отправить сообщение", "Send a message"],
         "openWin":   ["Chat oynasini ochish…", "Чат ойнасини очиш…", "Открыть окно чата…", "Open chat window…"],
         "ok":        ["OK", "OK", "OK", "OK"],
@@ -540,32 +546,138 @@ enum ChatPrompt: Identifiable {
     var id: Int { self == .create ? 0 : 1 }
 }
 
+// Тема окна чата от выбранного скина: тёмная, золотой акцент (как у Windows-версии)
+enum Theme {
+    static var bg: Color { Color(nsColor: Palette.mix(Palette.emeraldDark, .black, 0.55)) }
+    static var panel: Color { Color(nsColor: Palette.mix(Palette.emeraldDark, .black, 0.28)) }
+    static var raised: Color { Color(nsColor: Palette.mix(Palette.emeraldDark, Palette.ivory, 0.12)) }
+    static var text: Color { Color.pIvory }
+    static var dim: Color { Color.pIvory.opacity(0.55) }
+    static let online = Color(red: 0.27, green: 0.78, blue: 0.47)
+    static let offline = Color(red: 0.47, green: 0.49, blue: 0.51)
+    static func nickColor(_ id: String) -> Color {
+        let tints: [Color] = [Color(red: 0.94, green: 0.59, blue: 0.43), Color(red: 0.47, green: 0.78, blue: 0.59), Color(red: 0.47, green: 0.67, blue: 0.94),
+                              Color(red: 0.86, green: 0.55, blue: 0.78), Color(red: 0.90, green: 0.78, blue: 0.39), Color(red: 0.47, green: 0.82, blue: 0.82)]
+        var h = 0
+        for c in id.unicodeScalars { h = (h &* 31 &+ Int(c.value)) & 0x7fffffff }
+        return tints[h % tints.count]
+    }
+}
+
+/// Пузырь сообщения с «хвостиком» (у последнего сообщения серии)
+struct Bubble: Shape {
+    var mine: Bool, tail: Bool
+    func path(in r: CGRect) -> Path {
+        var p = Path(roundedRect: r, cornerRadius: 14)
+        if tail {
+            let y = r.maxY
+            if mine {
+                p.move(to: CGPoint(x: r.maxX - 10, y: y - 16)); p.addLine(to: CGPoint(x: r.maxX + 7, y: y)); p.addLine(to: CGPoint(x: r.maxX - 18, y: y - 2)); p.closeSubpath()
+            } else {
+                p.move(to: CGPoint(x: r.minX + 10, y: y - 16)); p.addLine(to: CGPoint(x: r.minX - 7, y: y)); p.addLine(to: CGPoint(x: r.minX + 18, y: y - 2)); p.closeSubpath()
+            }
+        }
+        return p
+    }
+}
+
+enum ChatRow: Identifiable {
+    case day(String)
+    case msg(ChatMsg, first: Bool, last: Bool)
+    var id: String {
+        switch self {
+        case .day(let s): return "day-" + s
+        case .msg(let m, _, _): return m.id
+        }
+    }
+}
+
+struct PillButtonStyle: ButtonStyle {
+    enum Kind { case primary, secondary, danger, chip }
+    var kind: Kind
+    func makeBody(configuration c: Configuration) -> some View {
+        let gold = Color.pGold
+        return c.label
+            .font(Font.ns(Palette.sans(13, weight: .medium)))
+            .foregroundColor(kind == .primary ? Color(nsColor: Palette.ink) : (kind == .danger ? Color(red: 1, green: 0.67, blue: 0.55) : Color.pIvory))
+            .padding(.horizontal, kind == .chip ? 14 : 16).padding(.vertical, kind == .chip ? 8 : 10)
+            .frame(maxWidth: kind == .chip ? nil : .infinity)
+            .background(Capsule().fill(kind == .primary ? gold.opacity(c.isPressed ? 0.8 : 1) : (kind == .chip ? Color.pEmerald.opacity(c.isPressed ? 0.9 : 0.55) : Color.clear)))
+            .overlay(Capsule().stroke(kind == .primary ? Color.clear : (kind == .danger ? Color(nsColor: Palette.terracotta) : gold.opacity(kind == .chip ? 0.55 : 0.65)), lineWidth: 1.1))
+    }
+}
+
+struct ChatSettingsSheet: View {
+    @ObservedObject var hub: ChatHub
+    var onClose: () -> Void
+    @State private var nick = ""
+    @State private var server = ""
+    @State private var auto = Store.get("chatAuto", "0") == "1"
+    @State private var sound = Store.get("chatSound", "1") != "0"
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Button(action: pickAvatar) {
+                AvatarView(userId: hub.userId, nick: hub.nick, avatar: hub.avatar, size: 88)
+                    .overlay(Circle().stroke(Color.pGold, lineWidth: 2).padding(-4))
+            }.buttonStyle(.plain)
+            Text(ChatT.T("pick")).font(.caption).foregroundColor(Theme.dim)
+            field(ChatT.T("nick"), $nick)
+            field(ChatT.T("server"), $server)
+            Toggle(ChatT.T("auto"), isOn: $auto).toggleStyle(.switch).tint(Color.pGold).foregroundColor(Theme.text)
+            Toggle(ChatT.T("sound"), isOn: $sound).toggleStyle(.switch).tint(Color.pGold).foregroundColor(Theme.text)
+            HStack(spacing: 10) {
+                Spacer()
+                Button(ChatT.T("cancel"), action: onClose).buttonStyle(PillButtonStyle(kind: .secondary)).frame(width: 110)
+                Button(ChatT.T("save")) {
+                    Store.set("chatAuto", auto ? "1" : "0"); Store.set("chatSound", sound ? "1" : "0")
+                    hub.configure(server: server, nick: nick)
+                    onClose()
+                }.buttonStyle(PillButtonStyle(kind: .primary)).frame(width: 120)
+            }
+        }
+        .padding(24).frame(width: 440)
+        .background(Theme.panel)
+        .onAppear { nick = hub.nick; server = hub.server }
+    }
+
+    func field(_ title: String, _ binding: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased()).font(Font.ns(Palette.sans(10, weight: .bold))).foregroundColor(Color.pGold)
+            TextField("", text: binding).textFieldStyle(.plain).padding(10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raised))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.pIvory.opacity(0.18), lineWidth: 1))
+                .foregroundColor(Theme.text)
+        }
+    }
+
+    func pickAvatar() {
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.image]; p.allowsMultipleSelection = false; p.message = ChatT.T("pick")
+        if p.runModal() == .OK, let url = p.url { hub.setAvatar(Avatars.fromFile(url)) }
+    }
+}
+
 struct ChatView: View {
     @ObservedObject var hub: ChatHub
     @State private var selected: String?
-    @State private var nickField = ""
-    @State private var serverField = ""
     @State private var prompt: ChatPrompt?
-    @State private var auto = Store.get("chatAuto", "0") == "1"
-    @State private var sound = Store.get("chatSound", "1") != "0"
+    @State private var showSettings = false
 
     var current: ChatGroup? { hub.groups.first { $0.code == selected } }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            HStack(spacing: 0) {
-                sidebar.frame(width: 220)
-                Divider()
-                main
-            }
+        HStack(spacing: 0) {
+            sidebar.frame(width: 320)
+            Rectangle().fill(Color.pIvory.opacity(0.12)).frame(width: 1)
+            if let g = current { chatPane(g) } else { emptyPane }
         }
-        .frame(minWidth: 700, minHeight: 480)
-        .background(Color.pIvory)
+        .frame(minWidth: 860, minHeight: 560)
+        .background(Theme.bg)
         .onAppear {
-            nickField = hub.nick; serverField = hub.server
             if selected == nil { selected = hub.groups.first?.code }
             hub.activeCode = selected
+            if !hub.configured { showSettings = true }   // первый запуск: сразу настройки
         }
         .onChange(of: selected) { c in hub.activeCode = c; if let c = c { hub.markRead(c) } }
         .onChange(of: hub.groups.count) { _ in if current == nil { selected = hub.groups.first?.code } }
@@ -576,169 +688,228 @@ struct ChatView: View {
                 if p == .create { hub.createGroup(v) } else { hub.requestJoin(v) }
             }
         }
+        .sheet(isPresented: $showSettings) { ChatSettingsSheet(hub: hub) { showSettings = false } }
     }
 
-    var header: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Button(action: pickAvatar) { AvatarView(userId: hub.userId, nick: hub.nick, avatar: hub.avatar, size: 60) }
-                .buttonStyle(.plain).help(ChatT.T("pick"))
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .bottom, spacing: 10) {
-                    field(ChatT.T("nick"), $nickField, width: 170)
-                    field(ChatT.T("server"), $serverField, width: 300)
-                    Button(ChatT.T("save")) { hub.configure(server: serverField, nick: nickField); serverField = hub.server }
-                        .keyboardShortcut(.defaultAction)
-                }
-                Text(hub.configured ? hub.status : ChatT.T("setup"))
-                    .font(Font.ns(Palette.sans(11)))
-                    .foregroundColor(hub.statusError || !hub.configured ? Color(nsColor: Palette.rgb(255, 170, 140)) : .pIvory)
-            }
-            Spacer()
-        }
-        .padding(14)
-        .background(Color.pEmeraldDark)
-    }
-
-    func field(_ title: String, _ binding: Binding<String>, width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(Font.ns(Palette.sans(10))).foregroundColor(.pGold)
-            TextField("", text: binding).textFieldStyle(.roundedBorder).frame(width: width)
-        }
-    }
-
+    // ---- левая колонка: профиль, список чатов, кнопки
     var sidebar: some View {
-        VStack(spacing: 8) {
-            List(selection: $selected) {
-                ForEach(hub.groups) { g in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(g.name).font(Font.ns(Palette.sans(13, weight: .bold))).lineLimit(1)
-                            Text(String(format: ChatT.T("online"), g.onlineCount) + " / \(g.members.count)").font(Font.ns(Palette.sans(11))).opacity(0.7)
-                        }
-                        Spacer()
-                        if g.unread > 0 {
-                            Text(g.unread > 99 ? "99+" : "\(g.unread)").font(.caption.bold()).foregroundColor(.white)
-                                .padding(.horizontal, 7).padding(.vertical, 2).background(Capsule().fill(Color(nsColor: Palette.terracotta)))
-                        }
-                    }
-                    .tag(g.code)
-                }
-            }
-            .listStyle(.sidebar)
-            HStack(spacing: 6) {
-                Button(ChatT.T("create")) { prompt = .create }.disabled(!hub.connected)
-                Button(ChatT.T("join")) { prompt = .join }.disabled(!hub.connected)
-                Button(ChatT.T("leave")) { if let c = current { hub.leave(c.code) } }.disabled(current == nil || !hub.connected)
-            }
-            Toggle(ChatT.T("auto"), isOn: $auto).font(Font.ns(Palette.sans(11)))
-                .onChange(of: auto) { Store.set("chatAuto", $0 ? "1" : "0") }
-            Toggle(ChatT.T("sound"), isOn: $sound).font(Font.ns(Palette.sans(11)))
-                .onChange(of: sound) { Store.set("chatSound", $0 ? "1" : "0") }
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(8)
-        .background(Color(nsColor: Palette.rgb(236, 226, 200)))
-    }
-
-    var main: some View {
         VStack(spacing: 0) {
-            groupStrip
-            Divider()
-            messages
-            Divider()
-            presets
-        }
-    }
-
-    var groupStrip: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let g = current {
-                HStack {
-                    Text(g.name + "   " + String(format: ChatT.T("code"), g.code)).font(Font.ns(Palette.sans(14, weight: .bold)))
-                        .foregroundColor(.pEmerald)
-                    Spacer()
-                    Button(ChatT.T("copy")) {
-                        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(g.code, forType: .string)
-                    }
+            HStack(spacing: 12) {
+                Button(action: { showSettings = true }) {
+                    AvatarView(userId: hub.userId, nick: hub.nick, avatar: hub.avatar, size: 48)
+                        .overlay(Circle().stroke(Color.pGold, lineWidth: 2).padding(-3))
+                }.buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(hub.nick.isEmpty ? ChatT.T("nick") : hub.nick).font(Font.ns(Palette.sans(14, weight: .bold))).foregroundColor(Theme.text).lineLimit(1)
+                    statusPill
                 }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(g.members) { m in
-                            AvatarView(userId: m.userId, nick: m.nick, avatar: m.avatar, size: 34)
-                                .opacity(m.online ? 1 : 0.4)
-                                .overlay(Circle().fill(m.online ? Color.pJade : Color.gray).frame(width: 10, height: 10)
-                                            .offset(x: 12, y: 12))
-                                .help(m.nick)
-                        }
-                    }
-                }
-            } else {
-                Text(ChatT.T("noGroup")).font(Font.ns(Palette.sans(13, weight: .medium))).foregroundColor(Color(nsColor: Palette.goldDeep))
+                Spacer()
+                Button(action: { showSettings = true }) { Image(systemName: "gearshape").font(.system(size: 16)).foregroundColor(Theme.text) }.buttonStyle(.plain)
             }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 92)
-        .background(Color.pIvory)
-    }
-
-    var messages: some View {
-        ScrollViewReader { proxy in
+            .padding(14)
+            Rectangle().fill(Color.pIvory.opacity(0.12)).frame(height: 1)
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(current?.messages ?? []) { m in
-                        let mine = m.from == hub.userId
-                        let who = current?.members.first { $0.userId == m.from }
-                        HStack(alignment: .top, spacing: 10) {
-                            AvatarView(userId: m.from, nick: m.nick, avatar: who?.avatar ?? (mine ? hub.avatar : nil), size: 36)
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(mine ? ChatT.T("you") : m.nick).font(Font.ns(Palette.sans(13, weight: .bold)))
-                                        .foregroundColor(mine ? .pEmerald : Color(nsColor: Palette.lapis))
-                                    Text(Self.hm.string(from: m.time)).font(Font.ns(Palette.sans(11))).foregroundColor(.gray)
-                                }
-                                Text(m.display).font(Font.ns(Palette.sans(13))).foregroundColor(Color(nsColor: Palette.ink))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 0)
+                LazyVStack(spacing: 2) {
+                    ForEach(hub.groups) { g in groupRow(g) }
+                }.padding(6)
+            }
+            VStack(spacing: 8) {
+                Button("+  " + ChatT.T("create")) { prompt = .create }.buttonStyle(PillButtonStyle(kind: .primary)).disabled(!hub.connected)
+                Button(ChatT.T("join")) { prompt = .join }.buttonStyle(PillButtonStyle(kind: .secondary)).disabled(!hub.connected)
+            }.padding(12)
+        }
+        .background(Theme.panel)
+    }
+
+    var statusPill: some View {
+        let color: Color = !hub.configured ? .orange : (hub.statusError ? Color.red.opacity(0.85) : (hub.connected ? Theme.online : Color.orange))
+        let text = !hub.configured ? ChatT.T("setup") : (hub.status.isEmpty ? ChatT.T("connecting") : hub.status)
+        return HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(text).font(Font.ns(Palette.sans(11))).foregroundColor(Theme.text).lineLimit(1)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(Capsule().fill(Color.pIvory.opacity(0.1)))
+    }
+
+    func groupRow(_ g: ChatGroup) -> some View {
+        let last = g.messages.last
+        let sel = g.code == selected
+        let preview = last.map { ($0.from == hub.userId ? ChatT.T("you") : $0.nick) + ": " + $0.display }
+            ?? (String(format: ChatT.T("online"), g.onlineCount) + " / \(g.members.count)")
+        return Button(action: { selected = g.code }) {
+            HStack(spacing: 12) {
+                AvatarView(userId: g.code, nick: g.name, avatar: nil, size: 52)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(g.name).font(Font.ns(Palette.sans(14, weight: .bold))).foregroundColor(Theme.text).lineLimit(1)
+                        Spacer(minLength: 6)
+                        if let l = last { Text(Self.stamp(l.time)).font(Font.ns(Palette.sans(11))).foregroundColor(g.unread > 0 ? Color.pGold : Theme.dim) }
+                    }
+                    HStack {
+                        Text(preview).font(Font.ns(Palette.sans(13))).foregroundColor(Theme.dim).lineLimit(1)
+                        Spacer(minLength: 6)
+                        if g.unread > 0 {
+                            Text(g.unread > 99 ? "99+" : "\(g.unread)").font(.caption.bold()).foregroundColor(Color(nsColor: Palette.ink))
+                                .padding(.horizontal, 8).padding(.vertical, 2).background(Capsule().fill(Color.pGold))
                         }
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(mine ? Color(nsColor: Palette.rgb(226, 240, 230)) : Color.clear)
-                        .id(m.id)
                     }
                 }
             }
-            .onChange(of: current?.messages.count ?? 0) { _ in
-                if let last = current?.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
-            }
-            .onChange(of: selected) { _ in
-                if let last = current?.messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
-            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 12).fill(sel ? Color.pEmerald.opacity(0.95) : Color.clear))
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+    }
+
+    static func stamp(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = Calendar.current.isDateInToday(d) ? "HH:mm" : "dd.MM"
+        return f.string(from: d)
+    }
+
+    // ---- пустое состояние
+    var emptyPane: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Star8().fill(Color.pEmerald.opacity(0.12))
+                Star8().stroke(Color.pGold.opacity(0.6), lineWidth: 1.6)
+                Circle().stroke(Color.pGold.opacity(0.28), lineWidth: 1).padding(22)
+            }.frame(width: 130, height: 130)
+            Text(ChatT.T("noGroup")).font(Font.ns(Palette.sans(18, weight: .bold))).foregroundColor(Theme.text)
+            Text(ChatT.T("noGroupHint")).font(Font.ns(Palette.sans(13))).foregroundColor(Theme.dim).multilineTextAlignment(.center).frame(maxWidth: 380)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    var presets: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 8)], spacing: 8) {
-            ForEach(ChatT.presetIds, id: \.self) { id in
-                Button(action: { if let c = current { hub.sendPreset(c.code, id) } }) {
-                    Text(ChatT.preset(id, id)).font(Font.ns(Palette.sans(12.5, weight: .medium))).foregroundColor(.pIvory)
-                        .padding(.horizontal, 10).padding(.vertical, 7).frame(maxWidth: .infinity)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.pEmerald.opacity((current != nil && hub.connected) ? 1 : 0.4)))
-                }
-                .buttonStyle(.plain).disabled(current == nil || !hub.connected)
-            }
+    // ---- правая часть: шапка, сообщения, быстрые ответы
+    func chatPane(_ g: ChatGroup) -> some View {
+        VStack(spacing: 0) {
+            header(g)
+            Rectangle().fill(Color.pIvory.opacity(0.12)).frame(height: 1)
+            messages(g)
+            Rectangle().fill(Color.pIvory.opacity(0.12)).frame(height: 1)
+            quickReplies(g)
         }
-        .padding(10)
-        .background(Color(nsColor: Palette.rgb(236, 226, 200)))
     }
 
+    func header(_ g: ChatGroup) -> some View {
+        let sorted = g.members.sorted { a, b in
+            a.online != b.online ? a.online : a.nick.localizedCaseInsensitiveCompare(b.nick) == .orderedAscending
+        }
+        return HStack(spacing: 12) {
+            AvatarView(userId: g.code, nick: g.name, avatar: nil, size: 46)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(g.name).font(Font.ns(Palette.sans(17, weight: .bold))).foregroundColor(Theme.text).lineLimit(1)
+                Text(String(format: ChatT.T("code"), g.code) + "   ·   \(g.members.count) / " + String(format: ChatT.T("online"), g.onlineCount))
+                    .font(Font.ns(Palette.sans(11))).foregroundColor(Theme.dim).lineLimit(1)
+            }
+            Spacer()
+            HStack(spacing: -10) {
+                ForEach(Array(sorted.prefix(5))) { m in
+                    AvatarView(userId: m.userId, nick: m.nick, avatar: m.avatar, size: 32)
+                        .opacity(m.online ? 1 : 0.45)
+                        .overlay(Circle().stroke(Theme.panel, lineWidth: 2))
+                        .overlay(Circle().fill(m.online ? Theme.online : Theme.offline).frame(width: 9, height: 9).overlay(Circle().stroke(Theme.panel, lineWidth: 2)).offset(x: 11, y: 11))
+                        .help(m.nick)
+                }
+            }.padding(.trailing, 10)
+            Button(action: {
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(g.code, forType: .string)
+            }) { Image(systemName: "doc.on.doc").font(.system(size: 15)).foregroundColor(Theme.text) }.buttonStyle(.plain).help(ChatT.T("copy"))
+            Menu {
+                Button(ChatT.T("copy")) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(g.code, forType: .string) }
+                Divider()
+                Button(ChatT.T("leave")) { hub.leave(g.code) }.disabled(!hub.connected)
+            } label: { Image(systemName: "ellipsis").font(.system(size: 16)).foregroundColor(Theme.text) }
+                .menuStyle(.borderlessButton).frame(width: 28)
+        }
+        .padding(.horizontal, 16).frame(height: 68)
+        .background(Theme.panel)
+    }
+
+    func rows(_ g: ChatGroup) -> [ChatRow] {
+        var out: [ChatRow] = []
+        var lastDay: Date?
+        let cal = Calendar.current
+        for (i, m) in g.messages.enumerated() {
+            if lastDay == nil || !cal.isDate(lastDay!, inSameDayAs: m.time) {
+                let label = cal.isDateInToday(m.time) ? ChatT.T("today") : (cal.isDateInYesterday(m.time) ? ChatT.T("yesterday") : Self.dayFmt.string(from: m.time))
+                out.append(.day(label)); lastDay = m.time
+            }
+            let prev: ChatMsg? = i > 0 ? g.messages[i - 1] : nil
+            let next: ChatMsg? = i + 1 < g.messages.count ? g.messages[i + 1] : nil
+            let newDayBefore = prev == nil || !cal.isDate(prev!.time, inSameDayAs: m.time)
+            let newDayAfter = next == nil || !cal.isDate(next!.time, inSameDayAs: m.time)
+            out.append(.msg(m, first: prev == nil || newDayBefore || prev!.from != m.from, last: next == nil || newDayAfter || next!.from != m.from))
+        }
+        return out
+    }
+    static let dayFmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "d MMMM"; return f }()
+
+    func messages(_ g: ChatGroup) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(rows(g)) { row in
+                        switch row {
+                        case .day(let s):
+                            Text(s).font(Font.ns(Palette.sans(11))).foregroundColor(Theme.text)
+                                .padding(.horizontal, 12).padding(.vertical, 4)
+                                .background(Capsule().fill(Color.pIvory.opacity(0.12))).padding(.vertical, 10)
+                        case .msg(let m, let first, let last):
+                            bubbleRow(g, m, first: first, last: last).id(m.id)
+                        }
+                    }
+                }.padding(.vertical, 8)
+            }
+            .background(Theme.bg)
+            .onChange(of: g.messages.count) { _ in
+                if let l = g.messages.last { withAnimation { proxy.scrollTo(l.id, anchor: .bottom) } }
+            }
+            .onChange(of: selected) { _ in
+                if let l = current?.messages.last { proxy.scrollTo(l.id, anchor: .bottom) }
+            }
+        }
+    }
+
+    func bubbleRow(_ g: ChatGroup, _ m: ChatMsg, first: Bool, last: Bool) -> some View {
+        let mine = m.from == hub.userId
+        let who = g.members.first { $0.userId == m.from }
+        let fill = mine ? Color(nsColor: Palette.mix(Palette.emerald, Palette.jade, 0.14)) : Theme.raised
+        return HStack(alignment: .bottom, spacing: 8) {
+            if mine { Spacer(minLength: 80) }
+            else {
+                Group {
+                    if last { AvatarView(userId: m.from, nick: m.nick, avatar: who?.avatar, size: 36) } else { Color.clear.frame(width: 36, height: 36) }
+                }
+            }
+            VStack(alignment: mine ? .trailing : .leading, spacing: 2) {
+                if first && !mine { Text(m.nick).font(Font.ns(Palette.sans(12, weight: .bold))).foregroundColor(Theme.nickColor(m.from)).padding(.leading, 4) }
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(m.display).font(Font.ns(Palette.sans(14))).foregroundColor(Theme.text).fixedSize(horizontal: false, vertical: true)
+                    Text(Self.hm.string(from: m.time)).font(Font.ns(Palette.sans(10))).foregroundColor(Theme.text.opacity(0.5))
+                }
+                .padding(.horizontal, 13).padding(.vertical, 8)
+                .background(Bubble(mine: mine, tail: last).fill(fill))
+            }
+            if !mine { Spacer(minLength: 80) }
+        }
+        .padding(.horizontal, 16).padding(.top, first ? 8 : 2)
+    }
     static let hm: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f }()
 
-    func pickAvatar() {
-        let p = NSOpenPanel()
-        p.allowedContentTypes = [.image]; p.allowsMultipleSelection = false; p.message = ChatT.T("pick")
-        if p.runModal() == .OK, let url = p.url { hub.setAvatar(Avatars.fromFile(url)) }
+    func quickReplies(_ g: ChatGroup) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) {
+            ForEach(ChatT.presetIds, id: \.self) { id in
+                Button(ChatT.preset(id, id)) { hub.sendPreset(g.code, id) }
+                    .buttonStyle(PillButtonStyle(kind: .chip))
+                    .disabled(!hub.connected)
+                    .opacity(hub.connected ? 1 : 0.45)
+            }
+        }
+        .padding(14)
+        .background(Theme.panel)
     }
 }
 
