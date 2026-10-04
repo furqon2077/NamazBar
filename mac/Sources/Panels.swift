@@ -271,17 +271,17 @@ struct BreakChatPanel: View {
                     Button(action: { gi = i }) {
                         Text("\(x.name) · \(x.onlineCount)/\(x.members.count)")
                             .font(Font.ns(Palette.sans(13, weight: .medium)))
-                            .foregroundColor(i == min(gi, hub.groups.count - 1) ? Color.pGold : Theme.dim)
+                            .foregroundColor(i == min(gi, hub.groups.count - 1) ? BreakTheme.accent : BreakTheme.dim)
                             .padding(.vertical, 10)
                             .overlay(alignment: .bottom) {
-                                Rectangle().fill(i == min(gi, hub.groups.count - 1) ? Color.pGold : Color.clear).frame(height: 2)
+                                Rectangle().fill(i == min(gi, hub.groups.count - 1) ? BreakTheme.accent : Color.clear).frame(height: 2)
                             }
                     }.buttonStyle(.plain)
                 }
                 Spacer()
             }
             .padding(.horizontal, 16)
-            .background(Theme.panel)
+            .background(BreakTheme.panel)
             // сообщения
             ScrollViewReader { proxy in
                 ScrollView {
@@ -292,11 +292,11 @@ struct BreakChatPanel: View {
                                 if mine { Spacer(minLength: 40) }
                                 else { AvatarView(userId: m.from, nick: m.nick, avatar: g.members.first { $0.userId == m.from }?.avatar, size: 26) }
                                 VStack(alignment: .leading, spacing: 2) {
-                                    if !mine { Text(m.nick).font(Font.ns(Palette.sans(11))).foregroundColor(Theme.nickColor(m.from)) }
-                                    Text(m.display).font(Font.ns(Palette.sans(14))).foregroundColor(Theme.text)
+                                    if !mine { Text(m.nick).font(Font.ns(Palette.sans(11))).foregroundColor(Theme.nickColor(m.from).opacity(0.9)) }
+                                    Text(m.display).font(Font.ns(Palette.sans(14))).foregroundColor(BreakTheme.text)
                                 }
                                 .padding(.horizontal, 12).padding(.vertical, 8)
-                                .background(RoundedRectangle(cornerRadius: 14).fill(mine ? Color.pEmerald.opacity(0.55) : Theme.raised))
+                                .background(RoundedRectangle(cornerRadius: 14).fill(mine ? BreakTheme.mine : BreakTheme.other))
                                 if !mine { Spacer(minLength: 40) }
                             }
                             .id(m.id)
@@ -315,25 +315,35 @@ struct BreakChatPanel: View {
             // «Позвать на намаз» и быстрые фразы
             VStack(spacing: 10) {
                 Button(action: { send("together") }) {
-                    Text(ChatT.T("callPrayer")).font(Font.ns(Palette.sans(15, weight: .bold))).foregroundColor(.pEmeraldDark)
+                    Text(ChatT.T("callPrayer")).font(Font.ns(Palette.sans(15, weight: .bold))).foregroundColor(.white)
                         .frame(maxWidth: .infinity).padding(.vertical, 12)
-                        .background(Capsule().fill(Color.pGold.opacity(hub.connected ? 1 : 0.45)))
+                        .background(Capsule().fill(BreakTheme.accent.opacity(hub.connected ? 1 : 0.45)))
                 }.buttonStyle(.plain)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 6)], alignment: .leading, spacing: 6) {
                     ForEach(ChatT.presetIds.filter { $0 != "together" }, id: \.self) { id in
                         Button(action: { send(id) }) {
-                            Text(ChatT.preset(id, id)).font(Font.ns(Palette.sans(12, weight: .medium))).foregroundColor(Theme.text)
+                            Text(ChatT.preset(id, id)).font(Font.ns(Palette.sans(12, weight: .medium))).foregroundColor(BreakTheme.text.opacity(hub.connected ? 1 : 0.5))
                                 .lineLimit(1).padding(.horizontal, 10).padding(.vertical, 6).frame(maxWidth: .infinity)
-                                .overlay(Capsule().stroke(Color.pGold.opacity(hub.connected ? 0.7 : 0.3), lineWidth: 1))
+                                .background(Capsule().fill(BreakTheme.other))
                         }.buttonStyle(.plain)
                     }
                 }
             }
             .padding(14)
-            .background(Theme.panel)
+            .background(BreakTheme.panel)
         }
-        .background(Theme.bg.opacity(0.92))
+        .background(BreakTheme.bg)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.pGold.opacity(0.5), lineWidth: 1))
     }
+}
+
+/// Светлая нейтральная палитра чата на экране перерыва (не зелёная, без обводки)
+enum BreakTheme {
+    static let bg = Color(red: 0.96, green: 0.96, blue: 0.95)
+    static let panel = Color(red: 0.92, green: 0.93, blue: 0.93)
+    static let other = Color(red: 0.88, green: 0.89, blue: 0.90)
+    static let mine = Color(red: 0.78, green: 0.86, blue: 0.98)
+    static let text = Color(red: 0.13, green: 0.13, blue: 0.14)
+    static let dim = Color(red: 0.38, green: 0.39, blue: 0.41)
+    static let accent = Color(red: 0.10, green: 0.45, blue: 0.91)
 }

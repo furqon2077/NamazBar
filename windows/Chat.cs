@@ -2031,8 +2031,12 @@ namespace NamazBar
         readonly List<UiButton> chips = new List<UiButton>();
         int gi;
 
+        static int users; static bool savedDark;
+
         public BreakChat()
         {
+            // На тёмно-зелёном экране перерыва чат делаем светлым нейтральным (как в светлой теме Windows), даже если Windows тёмная
+            if (users++ == 0) { savedDark = Ui.Dark; Ui.Dark = false; }
             BackColor = Ui.Bg; DoubleBuffered = true;
             tabs = new UiTabs(); tabs.Changed += delegate { gi = tabs.Selected; Refresh2(); };
             msgs = new MessageView(); snack = new Snackbar();
@@ -2049,7 +2053,7 @@ namespace NamazBar
             foreach (UiButton b in chips) Controls.Add(b);
             Showing = true;
             Chat.Changed += OnChanged;
-            Disposed += delegate { Chat.Changed -= OnChanged; Showing = false; Chat.Active = null; };
+            Disposed += delegate { Chat.Changed -= OnChanged; Showing = false; Chat.Active = null; if (--users <= 0) { users = 0; Ui.Dark = savedDark; } };
             Refresh2();
         }
 
@@ -2115,11 +2119,6 @@ namespace NamazBar
             if (snack.Visible) snack.BringToFront();
         }
 
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            using (Pen p = new Pen(Ui.Border, 1f)) e.Graphics.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
-            base.OnPaint(e);
-        }
     }
 
 }
