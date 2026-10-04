@@ -577,6 +577,11 @@ namespace NamazBar
             { "today",    new[] { "Bugun", "Бугун", "Сегодня", "Today" } },
             { "yesterday", new[] { "Kecha", "Кеча", "Вчера", "Yesterday" } },
             { "setupBtn", new[] { "Chatni sozlash", "Чатни созлаш", "Настроить чат", "Set up chat" } },
+            { "notConn",  new[] { "Serverga ulanmagan. Bir ozdan keyin urinib ko'ring", "Серверга уланмаган. Бир оздан кейин уриниб кўринг", "Нет соединения с сервером. Попробуйте чуть позже", "Not connected to the server. Try again in a moment" } },
+            { "needName", new[] { "Guruh nomini kiriting", "Гуруҳ номини киритинг", "Введите название группы", "Enter a group name" } },
+            { "needCode", new[] { "Guruh kodini kiriting", "Гуруҳ кодини киритинг", "Введите код группы", "Enter the group code" } },
+            { "creating", new[] { "Guruh yaratilmoqda…", "Гуруҳ яратилмоқда…", "Создаём группу…", "Creating the group…" } },
+            { "sendingReq", new[] { "So'rov yuborildi, tasdiqlashni kuting…", "Сўров юборилди, тасдиқлашни кутинг…", "Запрос отправлен, ждём подтверждения…", "Request sent, waiting for approval…" } },
             { "openChat", new[] { "Chatni ochish", "Чатни очиш", "Открыть чат", "Open chat" } },
             { "chatTab",  new[] { "Chat", "Чат", "Чат", "Chat" } },
             { "members",  new[] { "A'zolar", "Аъзолар", "Участники", "Members" } },
@@ -1173,14 +1178,14 @@ namespace NamazBar
     {
         [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
         static extern int SetWindowTheme(IntPtr hwnd, string app, string idlist);
-        public BufListBox() { SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true); }
+        // Никаких SetStyle(UserPaint/...) для нативного ListBox: иначе элементы рисуются только после клика или прокрутки
+        public BufListBox() { }
         // тёмная полоса прокрутки (Windows 10/11); на старых системах просто остаётся обычной
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
             try { SetWindowTheme(Handle, "DarkMode_Explorer", null); } catch { }
         }
-        protected override void OnPaintBackground(PaintEventArgs e) { using (SolidBrush b = new SolidBrush(BackColor)) e.Graphics.FillRectangle(b, e.ClipRectangle); }
     }
 
     // Круглая кнопка-значок (шестерёнка, «ещё», копировать) как в мессенджерах
@@ -1264,13 +1269,27 @@ namespace NamazBar
                 Items.Add(m);
             }
             EndUpdate();
-            if (toEnd || shownCode != g.Code) { if (Items.Count > 0) TopIndex = Items.Count - 1; }
+            if (toEnd || shownCode != g.Code) ScrollToEnd();
             else if (top < Items.Count) TopIndex = top;
             shownCode = g.Code; shownCount = g.Messages.Count;
+            Invalidate(); Update();   // сразу перерисовать: новые сообщения видны без прокрутки
+        }
+
+        // Показать конец переписки: верхний элемент подбирается так, чтобы последние сообщения заполняли окно целиком
+        void ScrollToEnd()
+        {
+            if (Items.Count == 0) return;
+            int h = 0, i = Items.Count - 1;
+            for (; i >= 0; i--)
+            {
+                h += GetItemHeight(i);
+                if (h > ClientSize.Height) { i++; break; }
+            }
+            TopIndex = Math.Max(0, Math.Min(i, Items.Count - 1));
         }
 
         // ---- пузыри с «хвостиком», аватар у последнего в серии, разделители дней
-        int BubbleMaxW() { return Math.Max(S(150), (int)(ClientSize.Width * 0.80)); }
+        int BubbleMaxW() { return Math.Max(S(140), (int)(ClientSize.Width * 0.74)); }
         static int S(float v) { return Ui.S(v); }
         Size TextSize(Graphics g, string text, int maxW)
         {
@@ -1319,7 +1338,7 @@ namespace NamazBar
             int bw = Math.Max(t.Width, timeW + S(4)) + S(20);
             int bh = S(7) + t.Height + S(2) + S(13) + S(5);
             int top = e.Bounds.Y + ((!mine && first) ? S(17) : 0);
-            int bx = mine ? e.Bounds.Right - S(14) - bw : e.Bounds.X + S(46);
+            int bx = mine ? e.Bounds.Right - S(46) - bw : e.Bounds.X + S(46);
             Rectangle br = new Rectangle(bx, top, bw, bh);
             Color fill = mine ? Ui.MineBubble : Ui.Raised;
             using (GraphicsPath p = Ui.Round(br, S(12))) using (SolidBrush fb = new SolidBrush(fill)) gr.FillPath(fb, p);
@@ -1330,7 +1349,11 @@ namespace NamazBar
                     : new[] { new Point(br.X + S(10), br.Bottom - S(16)), new Point(br.X - S(7), br.Bottom), new Point(br.X + S(18), br.Bottom - S(2)) };
                 using (SolidBrush fb = new SolidBrush(fill)) gr.FillPolygon(fb, tail);
             }
-            if (!mine)
+            if (mine)
+            {
+                if (last) Avatars.Draw(gr, new Rectangle(e.Bounds.Right - S(38), br.Bottom - S(28), S(28), S(28)), Chat.UserId, Chat.Nick, Chat.Avatar);
+            }
+            else
             {
                 if (first) TextRenderer.DrawText(gr, m.Nick, Ui.Small, new Point(bx + S(4), e.Bounds.Y + S(1)), NickColor(m.From));
                 if (last)
@@ -1395,6 +1418,45 @@ namespace NamazBar
             string nick = m.UserId == Chat.UserId ? m.Nick + "  (" + ChatT.T("you") + ")" : m.Nick;
             TextRenderer.DrawText(g, nick, Ui.Medium, new Rectangle(tx, e.Bounds.Y + Ui.S(6), dr.X - tx - Ui.S(10), Ui.S(18)), fg, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
             TextRenderer.DrawText(g, ChatT.T(m.Online ? "stOn" : "stOff"), Ui.Small, new Rectangle(tx, e.Bounds.Y + Ui.S(25), dr.X - tx - Ui.S(10), Ui.S(14)), m.Online ? Ui.Online : Ui.Dim, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+        }
+    }
+
+    // Сообщение о результате (успех / ошибка) внизу панели, как «snackbar» в приложениях Google
+    class Snackbar : Control
+    {
+        string text = ""; bool error;
+        readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 5000 };
+        public Snackbar()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Height = Ui.S(44); Visible = false; Font = Ui.Body;
+            timer.Tick += delegate { timer.Stop(); Visible = false; };
+        }
+        public void Show(string t, bool isError)
+        {
+            text = t; error = isError;
+            timer.Interval = isError ? 7000 : 4500; timer.Stop(); timer.Start();
+            Visible = true; BringToFront(); Invalidate();
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            Color behind = Parent != null ? Parent.BackColor : Ui.Bg;
+            g.Clear(behind);
+            Color bg = error ? (Ui.Dark ? Color.FromArgb(242, 139, 130) : Color.FromArgb(217, 48, 37))
+                             : (Ui.Dark ? Color.FromArgb(232, 234, 237) : Color.FromArgb(50, 50, 52));
+            Color fg = error ? (Ui.Dark ? Color.FromArgb(32, 33, 36) : Color.White) : (Ui.Dark ? Color.FromArgb(32, 33, 36) : Color.White);
+            Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), Ui.S(8), bg);
+            int d = Ui.S(18); Rectangle ic = new Rectangle(Ui.S(12), (Height - d) / 2, d, d);
+            using (Pen p = new Pen(fg, 2f))
+            {
+                p.StartCap = LineCap.Round; p.EndCap = LineCap.Round;
+                if (error) { g.DrawLine(p, ic.X + d / 2f, ic.Y + d * 0.2f, ic.X + d / 2f, ic.Y + d * 0.62f); g.DrawLine(p, ic.X + d / 2f, ic.Y + d * 0.84f, ic.X + d / 2f, ic.Y + d * 0.86f); }
+                else g.DrawLines(p, new PointF[] { new PointF(ic.X + d * 0.15f, ic.Y + d * 0.55f), new PointF(ic.X + d * 0.4f, ic.Y + d * 0.8f), new PointF(ic.X + d * 0.85f, ic.Y + d * 0.25f) });
+            }
+            TextRenderer.DrawText(g, text, Ui.Small, new Rectangle(ic.Right + Ui.S(10), 0, Width - ic.Right - Ui.S(22), Height), fg,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
         }
     }
 
@@ -1478,7 +1540,7 @@ namespace NamazBar
         UiIconButton btnCollapse, btnClose, btnGear;
         UiTabs groupTabs, viewTabs;
         MessageView msgs; MemberList memberList;
-        StatusPill pill;
+        StatusPill pill; Snackbar snack;
         Panel bar, quick, memberFoot, settingsPanel, addPanel;
         UiButton btnCopyCode, btnLeave, btnSave, btnCancelSettings, btnCreate, btnJoin;
         UiInput inNick, inServer, inName, inCode;
@@ -1528,7 +1590,7 @@ namespace NamazBar
             viewTabs = new UiTabs { Items = new[] { ChatT.T("chatTab"), ChatT.T("members") } };
             viewTabs.Changed += delegate { view = viewTabs.Selected; Refresh2(); };
             msgs = new MessageView(); memberList = new MemberList();
-            pill = new StatusPill();
+            pill = new StatusPill(); snack = new Snackbar();
 
             // ---- быстрые ответы
             quick = new Panel { BackColor = Ui.Panel };
@@ -1537,7 +1599,12 @@ namespace NamazBar
             {
                 string pid = id;
                 UiButton b = new UiButton(ChatT.Preset(id, id), UiKind.Chip); b.Font = Ui.Small; b.Height = S(26);
-                b.Click += delegate { ChatGroup g = CurrentGroup; if (g != null && Chat.Connected) Chat.SendPreset(g.Code, pid); };
+                b.Click += delegate
+                {
+                    ChatGroup g = CurrentGroup; if (g == null) return;
+                    if (!Chat.Connected) { snack.Show(ChatT.T("notConn"), true); return; }
+                    Chat.SendPreset(g.Code, pid);
+                };
                 quick.Controls.Add(b); chips.Add(b);
             }
 
@@ -1579,7 +1646,7 @@ namespace NamazBar
             addPanel.Controls.AddRange(new Control[] { lblAddHint, inName, btnCreate, inCode, btnJoin });
             addPanel.Paint += PaintAdd;
 
-            Controls.AddRange(new Control[] { bar, groupTabs, viewTabs, msgs, memberList, memberFoot, pill, quick, settingsPanel, addPanel });
+            Controls.AddRange(new Control[] { snack, bar, groupTabs, viewTabs, msgs, memberList, memberFoot, pill, quick, settingsPanel, addPanel });
         }
 
         void PaintAdd(object s, PaintEventArgs e)
@@ -1597,14 +1664,18 @@ namespace NamazBar
         void DoCreate()
         {
             string n = inName.Text.Trim();
-            if (n.Length == 0 || !Chat.Connected) return;
+            if (n.Length == 0) { snack.Show(ChatT.T("needName"), true); return; }
+            if (!Chat.Connected) { snack.Show(ChatT.T("notConn"), true); return; }
             pendingSelectNew = true; Chat.CreateGroup(n); inName.Text = "";
+            snack.Show(ChatT.T("creating"), false);
         }
         void DoJoin()
         {
             string c = inCode.Text.Trim();
-            if (c.Length == 0 || !Chat.Connected) return;
+            if (c.Length == 0) { snack.Show(ChatT.T("needCode"), true); return; }
+            if (!Chat.Connected) { snack.Show(ChatT.T("notConn"), true); return; }
             Chat.RequestJoin(c); inCode.Text = "";
+            snack.Show(ChatT.T("sendingReq"), false);
         }
 
         void OpenSettings()
@@ -1627,7 +1698,7 @@ namespace NamazBar
 
         void Toggle() { collapsed = !collapsed; Refresh2(); if (!collapsed) Activate(); }
 
-        void OnNotice(string text, bool error) { noticeText = text; noticeError = error; noticeAt = DateTime.Now; UpdatePill(); ApplyState(); }
+        void OnNotice(string text, bool error) { if (IsDisposed) return; snack.Show(text, error); }
 
         void OnChanged()
         {
@@ -1644,13 +1715,11 @@ namespace NamazBar
         {
             if (pill == null || IsDisposed) return;
             Color green = Ui.Online, amber = Color.FromArgb(240, 178, 84), red = Color.FromArgb(240, 110, 90);
-            bool notice = noticeText != null && (DateTime.Now - noticeAt).TotalSeconds <= 8;
-            if (notice) pill.Set(noticeError ? red : green, noticeText);
-            else if (!Chat.Configured) pill.Set(amber, ChatT.T("setup"));
+            if (!Chat.Configured) pill.Set(amber, ChatT.T("setup"));
             else if (Chat.Connected) pill.Set(green, ChatT.T("connected"));
             else if (!string.IsNullOrEmpty(Chat.LastError)) pill.Set(red, ChatT.T("connecting") + " " + Chat.LastError);
             else pill.Set(amber, ChatT.T("connecting"));
-            bool want = !collapsed && Chat.Configured && !forceSettings && (notice || !Chat.Connected);
+            bool want = !collapsed && Chat.Configured && !forceSettings && !Chat.Connected;
             if (pill.Visible != want) ApplyState();
         }
 
@@ -1671,9 +1740,7 @@ namespace NamazBar
             lblTitle.Text = (g != null && Chat.Configured && !forceSettings) ? g.Name : ChatT.T("menu").TrimEnd('…');
             lblBadge.Visible = unread > 0 && collapsed; lblBadge.Text = unread > 99 ? "99+" : unread.ToString();
             msgs.SetGroup(g); memberList.SetGroup(g);
-            bool can = Chat.Connected && g != null;
-            foreach (UiButton b in chips) b.Enabled = can;
-            btnCreate.Enabled = btnJoin.Enabled = Chat.Connected;
+            foreach (UiButton b in chips) b.Enabled = g != null;
             btnLeave.Enabled = Chat.Connected;
             lblSetupHint.Text = Chat.Configured ? "" : ChatT.T("setup");
             avatarBox.Invalidate();
@@ -1696,8 +1763,7 @@ namespace NamazBar
             memberList.Visible = memberFoot.Visible = showGroup && view == 1;
             settingsPanel.Visible = showSettings; addPanel.Visible = showAdd;
             btnCancelSettings.Visible = cfg;
-            bool notice = noticeText != null && (DateTime.Now - noticeAt).TotalSeconds <= 8;
-            pill.Visible = !collapsed && cfg && !forceSettings && (notice || !Chat.Connected);
+            pill.Visible = !collapsed && cfg && !forceSettings && !Chat.Connected;
             int H = collapsed ? barH : S(470);
             Rectangle anchor = Rectangle.Empty;
             try { if (ChatToast.Anchor != null) anchor = ChatToast.Anchor(); } catch { }
@@ -1709,10 +1775,14 @@ namespace NamazBar
                 x = Math.Max(wa.Left + 8, Math.Min(anchor.Left, wa.Right - W - 8)); bottom = Math.Min(anchor.Top, wa.Bottom) - 8;
             }
             else { x = wa.Right - W - 12; bottom = wa.Bottom - 12; }
-            SetBounds(x, Math.Max(wa.Top + 8, bottom - H), W, H);
+            Rectangle target = new Rectangle(x, Math.Max(wa.Top + 8, bottom - H), W, H);
+            bool resized = Size != target.Size;
+            if (Bounds != target) SetBounds(target.X, target.Y, target.Width, target.Height);
             LayoutChildren(W, H, barH);
-            try { using (GraphicsPath p = Ui.Round(new Rectangle(0, 0, W, H), S(12))) Region = new System.Drawing.Region(p); } catch { }
-            Invalidate(true);
+            if (resized) { try { using (GraphicsPath p = Ui.Round(new Rectangle(0, 0, W, H), S(12))) Region = new System.Drawing.Region(p); } catch { } }
+            // снэкбар — над быстрыми ответами / внизу панели
+            snack.SetBounds(S(10), H - (quick.Visible ? quick.Height : (memberFoot.Visible ? memberFoot.Height : 0)) - S(52), W - S(20), S(44));
+            if (snack.Visible) snack.BringToFront();
         }
 
         void LayoutChildren(int W, int H, int barH)
