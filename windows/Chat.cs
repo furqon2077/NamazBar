@@ -64,7 +64,7 @@ namespace NamazBar
 
     class ChatGroup
     {
-        public string Code, Name;
+        public string Code, Name, Owner;
         public List<ChatMember> Members = new List<ChatMember>();
         public List<ChatMsg> Messages = new List<ChatMsg>();
         public int Unread;
@@ -379,6 +379,7 @@ namespace NamazBar
 
         // ---- команды ----
         public static void CreateGroup(string name) { Send(new Dictionary<string, object> { { "type", "createGroup" }, { "name", name } }); }
+        public static void ClearChat(string code) { Send(new Dictionary<string, object> { { "type", "clearChat" }, { "code", code } }); }
         public static void RequestJoin(string code) { Send(new Dictionary<string, object> { { "type", "joinRequest" }, { "code", (code ?? "").Trim().ToUpperInvariant() } }); }
         public static void Decide(string requestId, bool approve) { Send(new Dictionary<string, object> { { "type", "decide" }, { "requestId", requestId }, { "approve", approve } }); }
         public static void Leave(string code) { Send(new Dictionary<string, object> { { "type", "leave" }, { "code", code } }); }
@@ -423,6 +424,7 @@ namespace NamazBar
             ChatGroup grp = Find(code);
             if (grp == null) { grp = new ChatGroup { Code = code }; Groups.Add(grp); }
             grp.Name = J.Str(g, "name") ?? code;
+            grp.Owner = J.Str(g, "owner");
             names[code] = grp.Name;
             grp.Members.Clear();
             foreach (Dictionary<string, object> m in J.List(g, "members")) grp.Members.Add(ParseMember(m));
@@ -471,6 +473,7 @@ namespace NamazBar
                 {
                     ChatGroup g = Find(J.Str(d, "code"));
                     if (g == null) break;
+                    g.Owner = J.Str(d, "owner");
                     g.Members.Clear();
                     foreach (Dictionary<string, object> m in J.List(d, "members")) g.Members.Add(ParseMember(m));
                     break;
@@ -573,6 +576,7 @@ namespace NamazBar
             { "quick",    new[] { "Tezkor xabarlar", "Тезкор хабарлар", "Быстрые сообщения", "Quick messages" } },
             { "noGroupHint", new[] { "Kodni do'stlaringizga yuboring: ular qo'shilishni so'raydi, siz tasdiqlaysiz.", "Кодни дўстларингизга юборинг: улар қўшилишни сўрайди, сиз тасдиқлайсиз.", "Отправьте код друзьям: они попросятся в группу, а вы подтвердите.", "Share the code with friends: they ask to join and you approve." } },
             { "settings", new[] { "Sozlamalar", "Созламалар", "Настройки", "Settings" } },
+            { "chatCleared", new[] { "Chat tozalandi", "Чат тозаланди", "Чат очищен", "Chat cleared" } },
             { "copied",   new[] { "Kod nusxalandi", "Код нусхаланди", "Код скопирован", "Code copied" } },
             { "today",    new[] { "Bugun", "Бугун", "Сегодня", "Today" } },
             { "yesterday", new[] { "Kecha", "Кеча", "Вчера", "Yesterday" } },
@@ -1542,7 +1546,9 @@ namespace NamazBar
         MessageView msgs; MemberList memberList;
         StatusPill pill; Snackbar snack;
         Panel bar, quick, memberFoot, settingsPanel, addPanel, codeBar;
-        Label lblCode; UiIconButton btnCopyIcon;
+        Label lblCode; UiIconButton btnCopyIcon, btnClear;
+        bool applying; Size regionSize; int dockH;
+        const int WM_NCHITTEST = 0x84, WM_EXITSIZEMOVE = 0x232, HTTOP = 12;
         UiButton btnCopyCode, btnLeave, btnSave, btnCancelSettings, btnCreate, btnJoin;
         UiInput inNick, inServer, inName, inCode;
         UiToggle tgAuto, tgSound;
@@ -1557,7 +1563,9 @@ namespace NamazBar
             AutoScaleMode = AutoScaleMode.None;
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
             BackColor = Ui.Bg; ForeColor = Ui.Text; Font = Ui.Body; DoubleBuffered = true;
-            Size = new Size(S(340), S(470));
+            int saved; if (!int.TryParse(Store.Get("chatDockH", ""), out saved)) saved = 0;
+            dockH = Math.Max(S(300), saved > 0 ? saved : S(470));
+            Size = new Size(S(340), dockH);
             Build();
             lastGroupCount = Chat.Groups.Count;
             Chat.Changed += OnChanged; Chat.Notice += OnNotice;
@@ -1615,7 +1623,14 @@ namespace NamazBar
             btnCopyIcon = new UiIconButton("\uE8C8");
             btnCopyIcon.Click += delegate { CopyCode(); };
             lblCode.Cursor = Cursors.Hand; lblCode.Click += delegate { CopyCode(); };
-            codeBar.Controls.AddRange(new Control[] { lblCode, btnCopyIcon });
+            btnClear = new UiIconButton("\uE74D");
+            btnClear.Click += delegate
+            {
+                ChatGroup g = CurrentGroup; if (g == null) return;
+                if (!Chat.Connected) { snack.Show(ChatT.T("notConn"), true); return; }
+                Chat.ClearChat(g.Code); snack.Show(ChatT.T("chatCleared"), false);
+            };
+            codeBar.Controls.AddRange(new Control[] { lblCode, btnCopyIcon, btnClear });
 
             // ---- участники: код группы и «Выйти»
             memberFoot = new Panel { BackColor = Ui.Panel };
@@ -1776,7 +1791,7 @@ namespace NamazBar
             settingsPanel.Visible = showSettings; addPanel.Visible = showAdd;
             btnCancelSettings.Visible = cfg;
             pill.Visible = !collapsed && cfg && !forceSettings && !Chat.Connected;
-            int H = collapsed ? barH : S(470);
+            int H = collapsed ? barH : dockH;
             Rectangle anchor = Rectangle.Empty;
             try { if (ChatToast.Anchor != null) anchor = ChatToast.Anchor(); } catch { }
             Rectangle wa = Screen.PrimaryScreen.WorkingArea;
@@ -1787,10 +1802,13 @@ namespace NamazBar
                 x = Math.Max(wa.Left + 8, Math.Min(anchor.Left, wa.Right - W - 8)); bottom = Math.Min(anchor.Top, wa.Bottom) - 8;
             }
             else { x = wa.Right - W - 12; bottom = wa.Bottom - 12; }
+            if (!collapsed) { H = Math.Max(S(300), Math.Min(H, wa.Height - 16)); dockH = H; }
             Rectangle target = new Rectangle(x, Math.Max(wa.Top + 8, bottom - H), W, H);
-            bool resized = Size != target.Size;
-            if (Bounds != target) SetBounds(target.X, target.Y, target.Width, target.Height);
+            applying = true;
+            try { if (Bounds != target) SetBounds(target.X, target.Y, target.Width, target.Height); }
+            finally { applying = false; }
             LayoutChildren(W, H, barH);
+            bool resized = regionSize != target.Size; regionSize = target.Size;
             if (resized) { try { using (GraphicsPath p = Ui.Round(new Rectangle(0, 0, W, H), S(12))) Region = new System.Drawing.Region(p); } catch { } }
             // снэкбар — над быстрыми ответами / внизу панели
             snack.SetBounds(S(10), H - (quick.Visible ? quick.Height : (memberFoot.Visible ? memberFoot.Height : 0)) - S(52), W - S(20), S(44));
@@ -1799,7 +1817,8 @@ namespace NamazBar
 
         void LayoutChildren(int W, int H, int barH)
         {
-            bar.SetBounds(0, 0, W, barH);
+            int grip = collapsed ? 0 : S(5);   // верхняя кромка: за неё можно тянуть окно вверх
+            bar.SetBounds(0, grip, W, barH);
             int bs = barH - S(8), by0 = S(4);   // кнопки в шапке подстраиваются под её высоту
             btnClose.SetBounds(W - bs - S(6), by0, bs, bs);
             btnCollapse.SetBounds(btnClose.Left - bs - S(2), by0, bs, bs);
@@ -1808,14 +1827,17 @@ namespace NamazBar
             int rightEdge = collapsed ? btnCollapse.Left : btnGear.Left;
             lblBadge.SetBounds(rightEdge - S(40), (barH - S(20)) / 2, S(34), S(20));
             lblTitle.SetBounds(S(14), 0, rightEdge - S(14) - (lblBadge.Visible ? S(44) : S(4)), barH);
-            int y = barH;
+            int y = barH + grip;
             if (groupTabs.Visible) { groupTabs.SetBounds(0, y, W, S(34)); y += S(34); }
             if (viewTabs.Visible) { viewTabs.SetBounds(0, y, W, S(34)); y += S(34); }
             if (codeBar.Visible)
             {
                 codeBar.SetBounds(0, y, W, S(30));
-                lblCode.SetBounds(S(14), 0, W - S(60), S(30));
-                btnCopyIcon.SetBounds(W - S(40), S(2), S(26), S(26));
+                bool own = CurrentGroup != null && CurrentGroup.Owner == Chat.UserId;
+                btnClear.Visible = own;
+                btnClear.SetBounds(W - S(40), S(2), S(26), S(26));
+                btnCopyIcon.SetBounds(W - S(40) - (own ? S(30) : 0), S(2), S(26), S(26));
+                lblCode.SetBounds(S(14), 0, btnCopyIcon.Left - S(18), S(30));
                 y += S(30);
             }
             if (pill.Visible) { pill.SetBounds(S(12), y + S(6), W - S(24), S(22)); y += S(34); }
@@ -1859,8 +1881,26 @@ namespace NamazBar
             btnJoin.SetBounds(px, S(272), pw, S(38));
         }
 
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_NCHITTEST && !collapsed)
+            {
+                int py = (short)(((long)m.LParam >> 16) & 0xFFFF);
+                if (py - Top < S(5)) { m.Result = (IntPtr)HTTOP; return; }
+            }
+            base.WndProc(ref m);
+            if (m.Msg == WM_EXITSIZEMOVE && !collapsed) { Store.Settings["chatDockH"] = dockH.ToString(); Store.Save(); }
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            if (!applying && !collapsed && bar != null && Height != dockH) { dockH = Height; ApplyState(); }
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
+            if (!collapsed) using (SolidBrush b = new SolidBrush(Ui.Panel)) e.Graphics.FillRectangle(b, 0, 0, Width, S(5));
             using (Pen p = new Pen(Ui.Border, 1f)) e.Graphics.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
             base.OnPaint(e);
         }

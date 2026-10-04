@@ -130,3 +130,30 @@ test('history: clearHistory (members only, sane time) and 12 h safety TTL', () =
   c.hello([{ code, name: 'G', token: a.last('groupCreated').token }]);
   assert.equal(c.last('welcome').groups[0].history.length, 0);
 });
+
+test('clearChat: owner only; ownership passes on when the owner leaves', () => {
+  const hub = new Hub({ secret: 's' });
+  const a = client(hub, 'alice', 'Alice'); a.hello();
+  a.send({ type: 'createGroup', name: 'G' });
+  const created = a.last('groupCreated');
+  const code = created.group.code;
+  assert.equal(created.group.owner, 'alice'.padEnd(16, 'x'));
+  const b = client(hub, 'bob', 'Bob'); b.hello();
+  b.send({ type: 'joinRequest', code });
+  a.send({ type: 'decide', requestId: a.last('joinRequest').requestId, approve: true });
+  a.send({ type: 'send', code, kind: 'preset', preset: 'together' });
+  assert.equal(hub.groups.get(code).history.length, 1);
+
+  b.send({ type: 'clearChat', code });
+  assert.equal(b.last('error').code, 'not_owner');
+  assert.equal(hub.groups.get(code).history.length, 1);
+
+  a.send({ type: 'clearChat', code });
+  assert.equal(hub.groups.get(code).history.length, 0);
+  assert.equal(b.last('historyCleared').code, code);
+
+  a.send({ type: 'leave', code });
+  assert.equal(b.last('members').owner, 'bob'.padEnd(16, 'x'));
+  b.send({ type: 'clearChat', code });
+  assert.equal(b.last('historyCleared').code, code);
+});

@@ -24,6 +24,7 @@ Transport: WebSocket, path `/ws`, one JSON object per text frame. Both clients (
 | `decide` | `requestId, approve: bool` |
 | `send` | `code, kind: "preset", preset` (ready-made phrases only — there is no free text) |
 | `clearHistory` | `code, before` (ms epoch, within the last 24 h; erases messages sent up to `before`) |
+| `clearChat` | `code` (group owner only; erases the whole history, everyone gets `historyCleared`) |
 | `leave` | `code` |
 | `ping` | — (reply `pong`; use as keep-alive, ~every 25 s) |
 
@@ -37,19 +38,19 @@ Transport: WebSocket, path `/ws`, one JSON object per text frame. Both clients (
 | `joinSettled` | `requestId, approved, by` (to members: hide the prompt) |
 | `joined` | `group, token` |
 | `joinDenied` | `code, reason` |
-| `members` | `code, members:[Member]` (online flags changed, someone joined/left) |
+| `members` | `code, owner, members:[Member]` (online flags changed, someone joined/left) |
 | `message` | `code, id, ts, from, nick, kind, preset?, text` |
 | `historyCleared` | `code, before` (drop messages up to `before`) |
 | `left` | `code` |
 | `error` | `code, message` |
 | `pong` | — |
 
-`Group = {code, name, members:[Member], history:[message]}` (last 50 messages, memory only). `Member = {userId, nick, avatar, online}`.
+`Group = {code, name, owner (userId; passes to the next member when the owner leaves), members:[Member], history:[message]}` (last 50 messages, memory only). `Member = {userId, nick, avatar, online}`.
 
 Preset ids: `together, coming, wait, where, ready, done`. Clients show their own localized text by id; `message.text` is the English fallback.
 
 ## Error codes
-`bad_request, no_hello, unknown_type, bad_user, bad_nick, bad_avatar, bad_name, no_group, already_member, group_full, too_many_groups, nobody_online, already_pending, busy, no_request, forbidden, bad_preset, bad_kind, bad_time, rate_limited, internal`.
+`bad_request, no_hello, unknown_type, bad_user, bad_nick, bad_avatar, bad_name, no_group, already_member, group_full, too_many_groups, nobody_online, already_pending, busy, no_request, forbidden, bad_preset, bad_kind, bad_time, not_owner, rate_limited, internal`.
 
 ## Client behaviour
 - Reconnect with exponential backoff (1 s → 30 s cap); free hosts sleep when idle and need up to ~60 s to wake. Re-send `hello` with saved groups after every reconnect.
