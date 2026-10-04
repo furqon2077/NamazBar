@@ -11,4 +11,4 @@ NamazBarTest*
 Claude outputs/
 
 server/node_modules/
-tools/.bot.json
+server/tools/.bot.json
