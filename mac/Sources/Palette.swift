@@ -10,6 +10,7 @@ enum Palette {
     static var emeraldDark = rgb(10, 52, 40)
     static var jade = rgb(70, 184, 140)
     static var lapis = rgb(30, 56, 110)
+    static var lapisHi = rgb(84, 118, 184)   // светлый отсвет значка «до следующего намаза» (зависит от скина)
     static var lapisDark = rgb(14, 26, 54)
     static var gold = rgb(222, 186, 98)
     static var goldDeep = rgb(160, 118, 34)

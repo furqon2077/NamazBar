@@ -13,7 +13,7 @@ namespace NamazBar
     {
         public string Id;
         public string[] Title;   // uz-lotin, uz-kirill, ru, en
-        public Color Emerald, EmeraldDark, Jade, Lapis, LapisDark, Gold, GoldDeep, Ivory, Ink;
+        public Color Emerald, EmeraldDark, Jade, Lapis, LapisHi, LapisDark, Gold, GoldDeep, Ivory, Ink;
     }
 
     // Скин подменяет цвета Palette; всё, что рисуется после Apply, берёт новые цвета
@@ -23,22 +23,22 @@ namespace NamazBar
 
         public static readonly List<SkinDef> All = new List<SkinDef> {
             new SkinDef { Id = "emerald", Title = new[] { "Zumrad (yashil)", "Зумрад (яшил)", "Изумруд (зелёный)", "Emerald (green)" },
-                Emerald = C(18, 94, 68), EmeraldDark = C(10, 52, 40), Jade = C(70, 184, 140), Lapis = C(30, 56, 110), LapisDark = C(14, 26, 54),
+                Emerald = C(18, 94, 68), EmeraldDark = C(10, 52, 40), Jade = C(70, 184, 140), Lapis = C(16, 82, 90), LapisHi = C(72, 178, 168), LapisDark = C(8, 38, 46),
                 Gold = C(222, 186, 98), GoldDeep = C(160, 118, 34), Ivory = C(246, 238, 218), Ink = C(40, 32, 20) },
             new SkinDef { Id = "ruby", Title = new[] { "Yoqut (qizil)", "Ёқут (қизил)", "Рубин (красный)", "Ruby (red)" },
-                Emerald = C(150, 28, 44), EmeraldDark = C(68, 12, 22), Jade = C(240, 106, 112), Lapis = C(96, 30, 56), LapisDark = C(40, 12, 26),
+                Emerald = C(150, 28, 44), EmeraldDark = C(68, 12, 22), Jade = C(240, 106, 112), Lapis = C(96, 30, 56), LapisHi = C(206, 96, 120), LapisDark = C(40, 12, 26),
                 Gold = C(232, 190, 108), GoldDeep = C(168, 118, 40), Ivory = C(250, 238, 230), Ink = C(44, 24, 22) },
             new SkinDef { Id = "sapphire", Title = new[] { "Safir (ko'k)", "Сафир (кўк)", "Сапфир (синий)", "Sapphire (blue)" },
-                Emerald = C(24, 78, 150), EmeraldDark = C(10, 30, 72), Jade = C(92, 170, 240), Lapis = C(40, 52, 130), LapisDark = C(10, 16, 52),
+                Emerald = C(24, 78, 150), EmeraldDark = C(10, 30, 72), Jade = C(92, 170, 240), Lapis = C(40, 52, 130), LapisHi = C(100, 126, 214), LapisDark = C(10, 16, 52),
                 Gold = C(226, 196, 112), GoldDeep = C(160, 124, 44), Ivory = C(238, 244, 252), Ink = C(24, 30, 44) },
             new SkinDef { Id = "sunset", Title = new[] { "Quyosh botishi (to'q sariq, sariq)", "Қуёш ботиши (тўқ сариқ, сариқ)", "Закат (оранжевый, жёлтый)", "Sunset (orange, yellow)" },
-                Emerald = C(190, 86, 18), EmeraldDark = C(92, 36, 8), Jade = C(255, 168, 60), Lapis = C(150, 60, 24), LapisDark = C(60, 22, 8),
+                Emerald = C(190, 86, 18), EmeraldDark = C(92, 36, 8), Jade = C(255, 168, 60), Lapis = C(150, 60, 24), LapisHi = C(240, 150, 70), LapisDark = C(60, 22, 8),
                 Gold = C(255, 214, 72), GoldDeep = C(196, 140, 20), Ivory = C(255, 244, 222), Ink = C(52, 30, 12) },
             new SkinDef { Id = "onyx", Title = new[] { "Oniks (qora)", "Оникс (қора)", "Оникс (чёрный)", "Onyx (black)" },
-                Emerald = C(36, 36, 40), EmeraldDark = C(12, 12, 14), Jade = C(200, 200, 208), Lapis = C(52, 52, 60), LapisDark = C(6, 6, 8),
+                Emerald = C(36, 36, 40), EmeraldDark = C(12, 12, 14), Jade = C(200, 200, 208), Lapis = C(52, 52, 60), LapisHi = C(138, 138, 150), LapisDark = C(6, 6, 8),
                 Gold = C(214, 176, 92), GoldDeep = C(150, 112, 36), Ivory = C(240, 238, 232), Ink = C(30, 30, 32) },
             new SkinDef { Id = "pearl", Title = new[] { "Injui (oq, kulrang)", "Инжуи (оқ, кулранг)", "Жемчуг (белый, серый)", "Pearl (white, grey)" },
-                Emerald = C(84, 92, 106), EmeraldDark = C(44, 50, 60), Jade = C(190, 200, 214), Lapis = C(110, 118, 132), LapisDark = C(30, 34, 42),
+                Emerald = C(84, 92, 106), EmeraldDark = C(44, 50, 60), Jade = C(190, 200, 214), Lapis = C(110, 118, 132), LapisHi = C(178, 186, 200), LapisDark = C(30, 34, 42),
                 Gold = C(240, 242, 246), GoldDeep = C(150, 156, 168), Ivory = C(250, 250, 252), Ink = C(34, 38, 46) },
         };
 
@@ -56,7 +56,7 @@ namespace NamazBar
             SkinDef s = Find(id);
             CurId = s.Id;
             Palette.Emerald = s.Emerald; Palette.EmeraldDark = s.EmeraldDark; Palette.Jade = s.Jade;
-            Palette.Lapis = s.Lapis; Palette.LapisDark = s.LapisDark; Palette.Gold = s.Gold;
+            Palette.Lapis = s.Lapis; Palette.LapisHi = s.LapisHi; Palette.LapisDark = s.LapisDark; Palette.Gold = s.Gold;
             Palette.GoldDeep = s.GoldDeep; Palette.Ivory = s.Ivory; Palette.Ink = s.Ink;
         }
 

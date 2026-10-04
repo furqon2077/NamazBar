@@ -68,7 +68,7 @@ enum StatusRenderer {
     // Циферблат: изумруд — идёт намаз, лазурит — отсчёт, шафран — восход или < 10 мин; двойная золотая рамка, ромбы
     static func drawDial(_ s: BarState, _ r: CGRect, _ font: NSFont) {
         let base: NSColor = s.countdown ? (s.warnSoon ? Palette.saffron : Palette.lapis) : (s.sunrise ? Palette.saffron : Palette.emerald)
-        let hi: NSColor = s.countdown ? (s.warnSoon ? Palette.rgb(240, 178, 84) : Palette.rgb(84, 118, 184))
+        let hi: NSColor = s.countdown ? (s.warnSoon ? Palette.rgb(240, 178, 84) : Palette.lapisHi)
                                       : (s.sunrise ? Palette.rgb(240, 178, 84) : Palette.jade)
         let p = CGFloat(s.alertPulse)
         if p > 0 {   // ореол при наступлении намаза

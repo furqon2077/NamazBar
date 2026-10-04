@@ -478,6 +478,7 @@ namespace NamazBar
         public static Color EmeraldDark = Color.FromArgb(10, 52, 40);
         public static Color Jade = Color.FromArgb(70, 184, 140);
         public static Color Lapis = Color.FromArgb(30, 56, 110);
+        public static Color LapisHi = Color.FromArgb(84, 118, 184);   // светлый отсвет циферблата «до следующего намаза» (зависит от скина)
         public static Color LapisDark = Color.FromArgb(14, 26, 54);
         public static Color Gold = Color.FromArgb(222, 186, 98);
         public static Color GoldDeep = Color.FromArgb(160, 118, 34);
@@ -766,7 +767,7 @@ namespace NamazBar
             // 2. Ореол вокруг циферблата. Изумруд — идёт намаз, лазурит — отсчёт до следующего,
             //    шафран — восход или меньше 10 минут до следующего
             Color baseC = Countdown ? (WarnSoon ? Amber : Palette.Lapis) : (Sunrise ? Amber : Green);
-            Color hiC = Countdown ? (WarnSoon ? Color.FromArgb(240, 178, 84) : Color.FromArgb(84, 118, 184))
+            Color hiC = Countdown ? (WarnSoon ? Color.FromArgb(240, 178, 84) : Palette.LapisHi)
                                   : (Sunrise ? Color.FromArgb(240, 178, 84) : GreenHi);
             if (Alert)
             {
