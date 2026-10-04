@@ -1391,6 +1391,7 @@ namespace NamazBar
                 open.Add(f);
                 f.Show();
             }
+            Chat.OnBreakStart();   // позвать группу на совместный намаз (если включено в чате)
         }
         static void CloseAll()
         {
@@ -1483,6 +1484,14 @@ namespace NamazBar
                 g.DrawString(Words.T("hadith"), fText, light, new RectangleF(x, y, w, hH), c); y += hH + S(4);
                 g.DrawString(Words.T("hadRef"), fSmall, dim, new RectangleF(x, y, w, hRef), c);
             }
+            // последнее сообщение из группового чата — видно и на заблокированном экране
+            string chatLine = Chat.RecentLine();
+            if (chatLine != null)
+            {
+                float cw = Math.Min(r.Width - S(80), S(900));
+                using (SolidBrush cb = new SolidBrush(Color.FromArgb(235, Palette.Gold)))
+                    g.DrawString(chatLine, fSmall, cb, new RectangleF((r.Width - cw) / 2, r.Height - S(150), cw, S(40)), c);
+            }
             // кнопка «удерживайте, чтобы выйти» (на экстренный случай)
             string hs = Words.T("holdSkip");
             SizeF bs = g.MeasureString(hs, fSmall);
@@ -1568,6 +1577,7 @@ namespace NamazBar
 
             tip = new ToolTip(); tip.InitialDelay = 400; tip.AutoPopDelay = 30000;
             BuildMenu();
+            ChatHooks.Init();
 
             timer = new System.Windows.Forms.Timer();
             timer.Interval = 1000;
@@ -2262,6 +2272,7 @@ namespace NamazBar
             Lang.Cur = idx;
             Store.Settings["lang"] = Lang.Codes[idx]; Store.Save();
             BuildMenu();
+            if (ChatForm.IsOpen) { ChatForm.CloseIfOpen(); ChatForm.ShowSingle(); }   // перерисовать на новом языке
             lastKey = null; Recalc(); UpdateTooltip(); Redraw();
         }
 
@@ -2285,6 +2296,7 @@ namespace NamazBar
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(Lang.T("sync"), null, delegate { StartSync(); });
             menu.Items.Add(Lang.T("open"), null, delegate { try { System.Diagnostics.Process.Start("https://islom.uz/taqvim"); } catch { } });
+            menu.Items.Add(ChatT.T("menu"), null, delegate { ChatForm.ShowSingle(); });
             menu.Items.Add(new ToolStripSeparator());
             soundItem = new ToolStripMenuItem(Lang.T("sound"));
             soundItem.Checked = Store.Get("sound", "0") == "1";
