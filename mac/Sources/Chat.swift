@@ -58,6 +58,8 @@ enum ChatT {
         "pick":      ["Rasm tanlash", "Расм танлаш", "Выбрать фото", "Choose picture"],
         "you":       ["Siz", "Сиз", "Вы", "You"],
         "settings":  ["Sozlamalar", "Созламалар", "Настройки", "Settings"],
+        "callPrayer": ["Namozga chaqirish", "Намозга чақириш", "Позвать на намаз", "Call to prayer"],
+        "notConn":   ["Server bilan aloqa yo'q", "Сервер билан алоқа йўқ", "Нет соединения с сервером", "Not connected to the server"],
         "copied":    ["Kod nusxalandi", "Код нусхаланди", "Код скопирован", "Code copied"],
         "today":     ["Bugun", "Бугун", "Сегодня", "Today"],
         "yesterday": ["Kecha", "Кеча", "Вчера", "Yesterday"],

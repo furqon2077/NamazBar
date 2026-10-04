@@ -1,9 +1,9 @@
 ## ru
-* Расписание больше не растягивает плашку на панели задач и не перекрывает «Пуск»: оно появляется отдельной строкой над виджетом по клику на плашку, по кнопке ⟳ или из меню «Бегущая строка» → «Показать расписание сейчас»
-* По умолчанию табло выключено, паузы 0 с, скорость быстрая
-* Умная длина плашки: на маленьких экранах короткий вариант, на больших — полный; можно выбрать вручную в меню «Вид» → «Размер на панели»
+* Новый экран перерыва на намаз: слева компактная информация (меньше шрифт и таймер), справа чат в стиле окна чата с большой кнопкой «Позвать на намаз» и быстрыми фразами, вверху справа текущие часы
+* Обновления теперь только вручную: «Версия» → «Проверить обновления»; при ошибке 403 используется запасной путь, во время выпуска релиза показывается понятное сообщение
+* Меню чата подстраивается под длинные имена участников
 
 ## en
-* The schedule no longer widens the taskbar widget or covers the Start button: it appears as a separate strip above the widget when you click the widget, press ⟳, or choose Ticker → Show the schedule now
-* Defaults: ticker off, 0 s pauses, fast speed
-* Smart widget length: a short variant on small screens, the full one on large screens; choose manually in Look → Size on the taskbar
+* New prayer break screen: compact info on the left (smaller font and timer), the chat on the right half in the chat window style with a big "Call to prayer" button and quick phrases, the current clock at the top right
+* Updates are manual only: Version → Check for updates; a fallback is used on a 403 error, and a clear message is shown while a release is still being published
+* The chat menu adapts to long member names

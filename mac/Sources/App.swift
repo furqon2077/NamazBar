@@ -54,7 +54,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         ChatHooks.install()
-        Updater.start()
         ChatHub.shared.prayerStarts = { [weak self] in   // чат стирает историю через 20 минут после каждого намаза (кроме восхода)
             guard let self = self, self.today.count == 6, self.yesterday.count == 6 else { return [] }
             return [0, 2, 3, 4, 5].flatMap { [self.yesterday[$0], self.today[$0]] }
@@ -300,7 +299,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let verItem = sub(String(format: Updater.T("version"), Updater.current) + (Updater.available ? "   • " + Updater.latest : ""), "arrow.down.circle")
         if Updater.available { verItem.submenu!.addItem(item(String(format: Updater.T("avail"), Updater.latest), #selector(showUpdate))) }
         verItem.submenu!.addItem(item(Updater.checking ? Updater.T("checking") : Updater.T("check"), #selector(checkUpdates)))
-        verItem.submenu!.addItem(item(Updater.T("auto"), #selector(toggleAutoUpdate), Updater.autoOn))
         menu.addItem(verItem)
         let quit = NSMenuItem(title: Lang.T("exit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
@@ -333,7 +331,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func syncNow() { sync() }
     @objc func showUpdate() { Updater.showDialog() }
     @objc func checkUpdates() { Updater.check(manual: true) }
-    @objc func toggleAutoUpdate() { Updater.autoOn.toggle() }
     @objc func toggleAutostart() { setAutostart(SMAppService.mainApp.status != .enabled) }
 
     func setAutostart(_ on: Bool) {

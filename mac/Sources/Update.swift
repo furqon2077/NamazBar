@@ -7,15 +7,10 @@ enum Updater {
     static var pageURL: URL?, assetURL: URL?
     static var available = false, checking = false
     static var onChange: () -> Void = {}
-    static var timer: Timer?
 
     static var current: String {
         let v = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
         return v.hasPrefix("__") ? "dev" : v
-    }
-    static var autoOn: Bool {
-        get { UserDefaults.standard.object(forKey: "updAuto") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "updAuto") }
     }
 
     static let t: [String: [String]] = [
@@ -23,7 +18,6 @@ enum Updater {
         "avail":    ["%@ ga yangilash", "%@ га янгилаш", "Обновить до %@", "Update to %@"],
         "check":    ["Yangilanishni tekshirish", "Янгиланишни текшириш", "Проверить обновления", "Check for updates"],
         "checking": ["Tekshirilmoqda…", "Текширилмоқда…", "Проверка…", "Checking…"],
-        "auto":     ["Avtomatik tekshirish", "Автоматик текшириш", "Проверять автоматически", "Check automatically"],
         "latest":   ["NamazBar %@ - eng yangi versiya", "NamazBar %@ - энг янги версия", "У вас последняя версия: NamazBar %@", "NamazBar %@ is the latest version"],
         "nonet":    ["GitHub bilan aloqa yo'q", "GitHub билан алоқа йўқ", "Не удалось проверить обновления", "Could not check for updates"],
         "title":    ["Yangi versiya mavjud: %@", "Янги версия мавжуд: %@", "Доступна новая версия: %@", "A new version is available: %@"],
@@ -32,6 +26,8 @@ enum Updater {
         "later":    ["Keyinroq", "Кейинроқ", "Позже", "Later"],
         "loading":  ["Yuklanmoqda…", "Юкланмоқда…", "Загрузка…", "Downloading…"],
         "opened":   ["Disk obrazi ochildi: NamazBar'ni Programmalar papkasiga torting", "Диск образи очилди: NamazBar'ни Программалар папкасига торинг", "Образ открыт: перетащите NamazBar в папку «Программы»", "Disk image opened: drag NamazBar to Applications"],
+        "pending":  ["%@ versiyasi hozir e'lon qilinmoqda - bir necha daqiqadan keyin qayta urinib ko'ring", "%@ версияси ҳозир эълон қилинмоқда - бир неча дақиқадан кейин қайта уриниб кўринг", "Версия %@ сейчас публикуется - попробуйте через пару минут", "Version %@ is being published right now - try again in a few minutes"],
+        "limit":    ["GitHub vaqtincha cheklov qo'ydi - keyinroq urinib ko'ring", "GitHub вақтинча чеклов қўйди - кейинроқ уриниб кўринг", "GitHub временно ограничил запросы - попробуйте позже", "GitHub is temporarily limiting requests - try again later"],
         "fail":     ["Yuklab bo'lmadi: %@", "Юклаб бўлмади: %@", "Не удалось скачать: %@", "Download failed: %@"],
     ]
     static func T(_ k: String) -> String { t[k]?[Lang.cur] ?? k }
@@ -50,37 +46,67 @@ enum Updater {
         return false
     }
 
-    /// Проверка при запуске (через 20 секунд) и затем раз в час: реально ходим на GitHub не чаще раза в 6 часов
-    static func start() {
-        timer = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { _ in
-            tick()
-            timer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in tick() }
-        }
-    }
-    static func tick() {
-        let last = UserDefaults.standard.double(forKey: "updLast")
-        if autoOn && Date().timeIntervalSince1970 - last >= 6 * 3600 { check(manual: false) }
-    }
-
+    /// Обновления только вручную (меню «Версия» → «Проверить обновления»): приложение само ничего не запрашивает
     static func check(manual: Bool) {
         if checking { return }
         checking = true; onChange()
-        var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
-        req.setValue("NamazBar/\(current)", forHTTPHeaderField: "User-Agent")
+        fetchAPI { json, code in
+            if let j = json { DispatchQueue.main.async { apply(j, nil, manual) }; return }
+            // API без токена пускает ~60 запросов в час с одного адреса (в офисе он общий) — тогда берём то же с обычных страниц
+            fetchPages { j2 in
+                DispatchQueue.main.async {
+                    if let j2 = j2 { apply(j2, nil, manual) }
+                    else { apply(nil, (code == 403 || code == 429) ? T("limit") : T("nonet"), manual) }
+                }
+            }
+        }
+    }
+
+    static func request(_ url: String, method: String = "GET") -> URLRequest {
+        var r = URLRequest(url: URL(string: url)!)
+        r.httpMethod = method
+        r.setValue("NamazBar/\(current)", forHTTPHeaderField: "User-Agent")
+        r.timeoutInterval = 15
+        return r
+    }
+
+    static func fetchAPI(_ done: @escaping ([String: Any]?, Int) -> Void) {
+        var req = request("https://api.github.com/repos/\(repo)/releases/latest")
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        req.timeoutInterval = 15
-        URLSession.shared.dataTask(with: req) { data, _, error in
-            DispatchQueue.main.async { apply(data, error, manual) }
+        URLSession.shared.dataTask(with: req) { data, resp, _ in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            if code == 200, let data = data, let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { done(d, code) }
+            else { done(nil, code) }
         }.resume()
     }
 
-    static func apply(_ data: Data?, _ error: Error?, _ manual: Bool) {
+    /// Без API: /releases/latest перенаправляет на тег; файл проверяем по ссылке загрузки, заметки берём из RELEASE_NOTES.md в этом теге
+    static func fetchPages(_ done: @escaping ([String: Any]?) -> Void) {
+        URLSession.shared.dataTask(with: request("https://github.com/\(repo)/releases/latest")) { _, resp, _ in
+            guard let u = resp?.url, u.path.contains("/tag/") else { done(nil); return }
+            let tag = u.lastPathComponent
+            let ver = tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+            let name = "NamazBar-\(ver).dmg"
+            let assetURL = "https://github.com/\(repo)/releases/download/\(tag)/\(name)"
+            URLSession.shared.dataTask(with: request("https://raw.githubusercontent.com/\(repo)/\(tag)/RELEASE_NOTES.md")) { data, nresp, _ in
+                var notes = ""
+                if (nresp as? HTTPURLResponse)?.statusCode == 200, let data = data, let text = String(data: data, encoding: .utf8) { notes = text }
+                URLSession.shared.dataTask(with: request(assetURL, method: "HEAD")) { _, aresp, _ in
+                    var assets: [[String: Any]] = []
+                    if (aresp as? HTTPURLResponse)?.statusCode == 200 { assets = [["name": name, "browser_download_url": assetURL]] }
+                    done(["tag_name": tag, "html_url": u.absoluteString, "body": notes, "assets": assets])
+                }.resume()
+            }.resume()
+        }.resume()
+    }
+
+    static func apply(_ d: [String: Any]?, _ err: String?, _ manual: Bool) {
         checking = false
-        guard error == nil, let data = data,
-              let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = d["tag_name"] as? String else {
+        guard let d = d, let tag = d["tag_name"] as? String else {
+            // неудачная попытка тоже считается: повтор не раньше чем через час (иначе общий адрес офиса быстро упирается в лимит GitHub)
+            UserDefaults.standard.set(Date().timeIntervalSince1970 - 11 * 3600, forKey: "updLast")
             onChange()
-            if manual { ChatToast.info(T("nonet")) }
+            if manual { ChatToast.info(err ?? T("nonet")) }
             return
         }
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "updLast")
@@ -91,8 +117,13 @@ enum Updater {
         for a in (d["assets"] as? [[String: Any]]) ?? [] {
             if let n = a["name"] as? String, n.hasSuffix(".dmg"), let u = a["browser_download_url"] as? String { assetURL = URL(string: u) }
         }
-        available = isNewer(latest, than: current) && assetURL != nil
+        let newer = isNewer(latest, than: current)
+        available = newer && assetURL != nil
         onChange()
+        if newer && assetURL == nil {   // тег уже есть, а .dmg ещё не загружен: идёт выпуск (Release action)
+            if manual { ChatToast.info(String(format: T("pending"), latest)) }
+            return
+        }
         if available {
             let seen = UserDefaults.standard.string(forKey: "updSeen") == latest
             if manual || (!seen && current != "dev") {

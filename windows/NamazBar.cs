@@ -1479,7 +1479,8 @@ namespace NamazBar
         bool allowClose;
         Rectangle holdBtn;
         readonly float dpi;
-        Font fBig, fTime, fText, fSmall;
+        Font fBig, fTime, fText, fSmall, fClock;
+        BreakChat chat;
         static readonly List<BreakForm> open = new List<BreakForm>();
 
         public static void ShowAll(string prayer, string time, int minutes)
@@ -1507,10 +1508,18 @@ namespace NamazBar
             Bounds = bounds; TopMost = true; DoubleBuffered = true; KeyPreview = true;
             BackColor = Palette.EmeraldDark;
             using (Graphics g = CreateGraphics()) dpi = g.DpiX / 96f;
-            fBig = Palette.Serif(30f, FontStyle.Bold);
-            fTime = Palette.Serif(84f, FontStyle.Bold);
-            fText = Palette.Serif(17f, FontStyle.Italic);
-            fSmall = Fonts.Get("NB Sans", 11f, "Segoe UI", FontStyle.Regular);
+            if (Chat.Configured && Chat.Groups.Count > 0)   // правая половина экрана — чат в том же стиле, что и окно чата
+            {
+                chat = new BreakChat();
+                int lw0 = bounds.Width / 2;
+                chat.SetBounds(lw0 + S(10), S(110), bounds.Width - lw0 - S(10) - S(40), Math.Max(S(300), bounds.Height - S(110) - S(130)));
+                Controls.Add(chat);
+            }
+            fBig = Palette.Serif(21f, FontStyle.Bold);
+            fTime = Palette.Serif(54f, FontStyle.Bold);
+            fText = Palette.Serif(13f, FontStyle.Italic);
+            fSmall = Fonts.Get("NB Sans", 10f, "Segoe UI", FontStyle.Regular);
+            fClock = Palette.Serif(30f, FontStyle.Bold);
             timer.Interval = 50;
             timer.Tick += delegate
             {
@@ -1544,7 +1553,8 @@ namespace NamazBar
             string head = Words.T("breakT") + " · " + prayer + " · " + time;
             TimeSpan left = until - DateTime.Now; if (left < TimeSpan.Zero) left = TimeSpan.Zero;
             string clock = ((int)left.TotalMinutes).ToString("00") + ":" + left.Seconds.ToString("00");
-            float w = Math.Min(r.Width - S(80), S(900));
+            int lw = r.Width / 2;   // слева — компактная информация, справа — чат
+            float w = Math.Min(lw - S(70), S(640));
             // блоки сверху вниз, всё вместе — по центру экрана над кнопкой выхода
             SizeF hs0 = g.MeasureString(head, fBig, (int)w + S(200));
             SizeF cs = g.MeasureString(clock, fTime);
@@ -1560,9 +1570,9 @@ namespace NamazBar
             }
             float y = Math.Max(S(24), (r.Height - S(110) - total) / 2);
             using (SolidBrush gold = new SolidBrush(Palette.Gold))
-                g.DrawString(head, fBig, gold, new RectangleF(0, y, r.Width, hs0.Height), c);
+                g.DrawString(head, fBig, gold, new RectangleF(0, y, lw, hs0.Height), c);
             y += hs0.Height + S(24);
-            float cx = r.Width / 2f, cy = y + star;
+            float cx = lw / 2f, cy = y + star;
             using (GraphicsPath p = new GraphicsPath())
             {
                 Palette.Star8(p, cx, cy, star);
@@ -1574,29 +1584,46 @@ namespace NamazBar
             using (SolidBrush ib = new SolidBrush(Palette.Ivory))
                 g.DrawString(clock, fTime, ib, cx - cs.Width / 2, cy - cs.Height / 2);
             y = cy + star + S(24);
-            Palette.Divider(g, cx - S(220), cx + S(220), y + S(8), S(7), Palette.Gold);
+            Palette.Divider(g, cx - S(150), cx + S(150), y + S(8), S(7), Palette.Gold);
             y += S(30);
             using (SolidBrush light = new SolidBrush(Palette.Ivory))
             using (SolidBrush dim = new SolidBrush(Color.FromArgb(210, Palette.Gold)))
             {
-                float x = (r.Width - w) / 2;
+                float x = (lw - w) / 2;
                 g.DrawString(Words.T("ayah"), fText, light, new RectangleF(x, y, w, hA), c); y += hA + S(4);
                 g.DrawString(Words.T("ayahRef"), fSmall, dim, new RectangleF(x, y, w, hRef), c); y += hRef + S(14);
                 g.DrawString(Words.T("hadith"), fText, light, new RectangleF(x, y, w, hH), c); y += hH + S(4);
                 g.DrawString(Words.T("hadRef"), fSmall, dim, new RectangleF(x, y, w, hRef), c);
             }
-            // последнее сообщение из группового чата — видно и на заблокированном экране
-            string chatLine = Chat.RecentLine();
-            if (chatLine != null)
+            // справа — чат (живые элементы BreakChat); если групп нет, показываем последнюю реплику, как раньше
+            if (chat == null)
             {
-                float cw = Math.Min(r.Width - S(80), S(900));
-                using (SolidBrush cb = new SolidBrush(Color.FromArgb(235, Palette.Gold)))
-                    g.DrawString(chatLine, fSmall, cb, new RectangleF((r.Width - cw) / 2, r.Height - S(150), cw, S(40)), c);
+                string chatLine = Chat.RecentLine();
+                if (chatLine != null)
+                {
+                    float cw = Math.Min(lw - S(80), S(640));
+                    using (SolidBrush cb = new SolidBrush(Color.FromArgb(235, Palette.Gold)))
+                        g.DrawString(chatLine, fSmall, cb, new RectangleF((lw - cw) / 2, r.Height - S(150), cw, S(40)), c);
+                }
+            }
+            // текущие часы — справа вверху
+            {
+                string now = DateTime.Now.ToString("HH:mm");
+                CultureInfo ci;
+                try { ci = new CultureInfo(new[] { "uz-Latn-UZ", "uz-Cyrl-UZ", "ru-RU", "en-US" }[Lang.Cur]); } catch { ci = CultureInfo.InvariantCulture; }
+                string date = DateTime.Now.ToString("dddd, d MMMM", ci);
+                using (StringFormat rf = new StringFormat { Alignment = StringAlignment.Far })
+                using (SolidBrush ib = new SolidBrush(Palette.Ivory))
+                using (SolidBrush db = new SolidBrush(Color.FromArgb(200, Palette.Gold)))
+                {
+                    g.DrawString(now, fClock, ib, new RectangleF(lw, S(20), lw - S(40), S(48)), rf);
+                    g.DrawString(date, fSmall, db, new RectangleF(lw, S(66), lw - S(40), S(22)), rf);
+                }
             }
             // кнопка «удерживайте, чтобы выйти» (на экстренный случай)
             string hs = Words.T("holdSkip");
             SizeF bs = g.MeasureString(hs, fSmall);
-            holdBtn = new Rectangle((int)(r.Width / 2 - bs.Width / 2 - S(24)), r.Height - S(100), (int)bs.Width + S(48), S(44));
+            holdBtn = new Rectangle((int)(lw / 2 - bs.Width / 2 - S(24)), r.Height - S(100), (int)bs.Width + S(48), S(44));
             using (GraphicsPath p = Layered.Round(holdBtn, S(22)))
             {
                 using (Pen pen = new Pen(Color.FromArgb(130, Palette.Gold), S(1.2f))) g.DrawPath(pen, p);
@@ -1611,7 +1638,9 @@ namespace NamazBar
                 g.DrawString(hs, fSmall, dim, holdBtn.X + (holdBtn.Width - bs.Width) / 2, holdBtn.Y + (holdBtn.Height - bs.Height) / 2);
         }
 
+
         protected override void OnMouseDown(MouseEventArgs e) { if (holdBtn.Contains(e.Location)) holdStart = DateTime.Now; base.OnMouseDown(e); }
+        protected override void OnMouseMove(MouseEventArgs e) { Cursor = holdBtn.Contains(e.Location) ? Cursors.Hand : Cursors.Default; base.OnMouseMove(e); }
         protected override void OnMouseUp(MouseEventArgs e) { holdStart = DateTime.MinValue; base.OnMouseUp(e); }
         protected override void OnKeyDown(KeyEventArgs e) { if (e.KeyCode == Keys.Escape && holdStart == DateTime.MinValue) holdStart = DateTime.Now; e.Handled = true; base.OnKeyDown(e); }
         protected override void OnKeyUp(KeyEventArgs e) { if (e.KeyCode == Keys.Escape) holdStart = DateTime.MinValue; base.OnKeyUp(e); }
@@ -2479,10 +2508,6 @@ namespace NamazBar
             ToolStripMenuItem ver = MenuUi.Sub(string.Format(Updater.T("updVersion"), Build.Version) + (Updater.Available ? "   \u2022 " + Updater.LatestTag : ""), "\uE946");
             if (Updater.Available) ver.DropDownItems.Add(MenuUi.Item(string.Format(Updater.T("updAvail"), Updater.LatestTag), "\uE896", delegate { UpdateForm.ShowFor(); }));
             ver.DropDownItems.Add(MenuUi.Item(Updater.Checking ? Updater.T("updChecking") : Updater.T("updCheck"), "\uE72C", delegate { Updater.Check(true); }));
-            ToolStripMenuItem uauto = MenuUi.Sub(Updater.T("updAuto"), null);
-            uauto.Checked = Updater.AutoOn;
-            uauto.Click += delegate { Store.Settings["updAuto"] = Updater.AutoOn ? "0" : "1"; Store.Save(); uauto.Checked = Updater.AutoOn; };
-            ver.DropDownItems.Add(uauto);
             menu.Items.Add(ver);
             menu.Items.Add(MenuUi.Item(Lang.T("exit"), "\uE7E8", delegate { Application.Exit(); }));
         }

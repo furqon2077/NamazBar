@@ -1,6 +1,7 @@
 // Обновление программы: проверка новых релизов на GitHub, «что нового», загрузка и запуск установщика.
 // Релиз = страница GitHub Releases; в нём лежит NamazBar-X.Y.Z-windows.exe (полный установщик).
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -21,7 +22,6 @@ namespace NamazBar
         public static long AssetSize;
         public static bool Available, Checking;
         static SynchronizationContext sync;
-        static System.Windows.Forms.Timer timer;
 
         static readonly Dictionary<string, string[]> t = new Dictionary<string, string[]>
         {
@@ -29,7 +29,6 @@ namespace NamazBar
             { "updAvail",    new[] { "{0} ga yangilash", "{0} га янгилаш", "Обновить до {0}", "Update to {0}" } },
             { "updCheck",    new[] { "Yangilanishni tekshirish", "Янгиланишни текшириш", "Проверить обновления", "Check for updates" } },
             { "updChecking", new[] { "Tekshirilmoqda…", "Текширилмоқда…", "Проверка…", "Checking…" } },
-            { "updAuto",     new[] { "Avtomatik tekshirish", "Автоматик текшириш", "Проверять автоматически", "Check automatically" } },
             { "updUpToDate", new[] { "NamazBar {0} - eng yangi versiya", "NamazBar {0} - энг янги версия", "У вас последняя версия: NamazBar {0}", "NamazBar {0} is the latest version" } },
             { "updNoNet",    new[] { "GitHub bilan aloqa yo'q", "GitHub билан алоқа йўқ", "Не удалось проверить обновления", "Could not check for updates" } },
             { "updTitle",    new[] { "Yangi versiya mavjud", "Янги версия мавжуд", "Доступна новая версия", "A new version is available" } },
@@ -39,6 +38,8 @@ namespace NamazBar
             { "updLater",    new[] { "Keyinroq", "Кейинроқ", "Позже", "Later" } },
             { "updLoading",  new[] { "Yuklanmoqda… {0}%", "Юкланмоқда… {0}%", "Загрузка… {0}%", "Downloading… {0}%" } },
             { "updStart",    new[] { "O'rnatuvchi ishga tushmoqda…", "Ўрнатувчи ишга тушмоқда…", "Запускаю установщик…", "Starting the installer…" } },
+            { "updPending",  new[] { "{0} versiyasi hozir e'lon qilinmoqda - bir necha daqiqadan keyin qayta urinib ko'ring", "{0} версияси ҳозир эълон қилинмоқда - бир неча дақиқадан кейин қайта уриниб кўринг", "Версия {0} сейчас публикуется - попробуйте через пару минут", "Version {0} is being published right now - try again in a few minutes" } },
+            { "updLimit",    new[] { "GitHub vaqtincha cheklov qo'ydi - keyinroq urinib ko'ring", "GitHub вақтинча чеклов қўйди - кейинроқ уриниб кўринг", "GitHub временно ограничил запросы - попробуйте позже", "GitHub is temporarily limiting requests - try again later" } },
             { "updFail",     new[] { "Yangilab bo'lmadi: {0}", "Янгилаб бўлмади: {0}", "Не удалось обновить: {0}", "Update failed: {0}" } },
         };
         public static string T(string k) { return t[k][Lang.Cur]; }
@@ -49,23 +50,13 @@ namespace NamazBar
             return Version.TryParse(s, out v) ? v : null;
         }
         public static Version CurrentVer() { return Parse(Build.Version) ?? new Version(0, 0, 0); }
-        public static bool AutoOn { get { return Store.Get("updAuto", "1") != "0"; } }
         static void Fire() { Action a = Changed; if (a != null) a(); }
         static void Post(Action a) { sync.Post(delegate { try { a(); } catch (Exception ex) { Store.Log("update: " + ex); } }, null); }
 
-        // Проверка при запуске (через 20 секунд) и затем раз в 6 часов, пока включена автопроверка
+        // Обновления только вручную (меню «Версия» → «Проверить обновления»): программа сама ничего не запрашивает
         public static void Start()
         {
             sync = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
-            timer = new System.Windows.Forms.Timer { Interval = 20000 };
-            timer.Tick += delegate
-            {
-                timer.Interval = 3600000;
-                long last; long.TryParse(Store.Get("updLast", "0"), out last);
-                bool due = (DateTime.UtcNow - new DateTime(last, DateTimeKind.Utc)).TotalHours >= 6;
-                if (AutoOn && due) Check(false);
-            };
-            timer.Start();
         }
 
         public static void Check(bool manual)
@@ -75,23 +66,86 @@ namespace NamazBar
             Thread th = new Thread(delegate()
             {
                 string err = null; Dictionary<string, object> d = null;
-                try
+                try { try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; } catch { } } catch { }
+                try { d = FetchApi(); }
+                catch (Exception ex)
                 {
-                    try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; } catch { }
-                    HttpWebRequest r = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/" + Repo + "/releases/latest");
-                    r.UserAgent = "NamazBar/" + Build.Version; r.Accept = "application/vnd.github+json"; r.Timeout = 15000;
-                    using (HttpWebResponse resp = (HttpWebResponse)r.GetResponse())
-                    using (StreamReader sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8)) d = J.Parse(sr.ReadToEnd());
+                    err = Describe(ex);
+                    // API без токена пускает ~60 запросов в час с одного адреса (в офисе он общий) - тогда берём то же с обычных страниц
+                    try { d = FetchPages(); err = d != null ? null : err; }
+                    catch (Exception ex2) { if (Describe(ex2) != null && !(ex2 is WebException && ((WebException)ex2).Response == null)) err = Describe(ex2); }
                 }
-                catch (WebException ex)
-                {
-                    HttpWebResponse hr = ex.Response as HttpWebResponse;
-                    err = hr != null && hr.StatusCode == HttpStatusCode.NotFound ? "no releases found (404)" : ex.Message;
-                }
-                catch (Exception ex) { err = ex.Message; }
                 Post(delegate { Apply(d, err, manual); });
             });
             th.IsBackground = true; th.Name = "update-check"; th.Start();
+        }
+
+
+        static string Describe(Exception ex)
+        {
+            WebException we = ex as WebException;
+            HttpWebResponse hr = we != null ? we.Response as HttpWebResponse : null;
+            if (hr != null)
+            {
+                int c = (int)hr.StatusCode;
+                if (c == 403 || c == 429) return T("updLimit");
+                if (c == 404) return "no releases found (404)";
+                return "HTTP " + c;
+            }
+            return ex.Message;
+        }
+
+        static HttpWebRequest Req(string url, bool redirect)
+        {
+            HttpWebRequest r = (HttpWebRequest)WebRequest.Create(url);
+            r.UserAgent = "NamazBar/" + Build.Version; r.Timeout = 15000; r.AllowAutoRedirect = redirect;
+            return r;
+        }
+        static string Get(string url)
+        {
+            HttpWebRequest r = Req(url, true);
+            using (HttpWebResponse resp = (HttpWebResponse)r.GetResponse())
+            using (StreamReader sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8)) return sr.ReadToEnd();
+        }
+        static Dictionary<string, object> FetchApi()
+        {
+            HttpWebRequest r = Req("https://api.github.com/repos/" + Repo + "/releases/latest", true);
+            r.Accept = "application/vnd.github+json";
+            using (HttpWebResponse resp = (HttpWebResponse)r.GetResponse())
+            using (StreamReader sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8)) return J.Parse(sr.ReadToEnd());
+        }
+
+        // Без API: /releases/latest перенаправляет на тег; файл проверяем по ссылке загрузки, заметки берём из RELEASE_NOTES.md в этом теге
+        static Dictionary<string, object> FetchPages()
+        {
+            string tag;
+            HttpWebRequest r = Req("https://github.com/" + Repo + "/releases/latest", false);
+            using (HttpWebResponse resp = (HttpWebResponse)r.GetResponse())
+            {
+                string loc = resp.Headers["Location"] ?? "";
+                int i = loc.LastIndexOf("/tag/", StringComparison.Ordinal);
+                if (i < 0) return null;
+                tag = Uri.UnescapeDataString(loc.Substring(i + 5));
+            }
+            Version v = Parse(tag);
+            if (v == null) return null;
+            Dictionary<string, object> d = new Dictionary<string, object>();
+            d["tag_name"] = tag;
+            d["html_url"] = "https://github.com/" + Repo + "/releases/tag/" + tag;
+            string notes = "";
+            try { notes = Get("https://raw.githubusercontent.com/" + Repo + "/" + tag + "/RELEASE_NOTES.md"); } catch { }
+            d["body"] = notes;
+            ArrayList assets = new ArrayList();
+            string name = "NamazBar-" + v + "-windows.exe", url = "https://github.com/" + Repo + "/releases/download/" + tag + "/" + name;
+            try
+            {
+                HttpWebRequest h = Req(url, false);
+                using (HttpWebResponse hr = (HttpWebResponse)h.GetResponse())
+                    if ((int)hr.StatusCode >= 200 && (int)hr.StatusCode < 400) assets.Add(new Dictionary<string, object> { { "name", name }, { "browser_download_url", url }, { "size", 0 } });
+            }
+            catch (WebException) { }   // файла ещё нет: релиз публикуется
+            d["assets"] = assets;
+            return d;
         }
 
         static void Apply(Dictionary<string, object> d, string err, bool manual)
@@ -101,7 +155,10 @@ namespace NamazBar
             if (err == null && lv == null) err = "bad release data";
             if (err != null)
             {
-                Error = err; Fire();
+                Error = err;
+                // неудачная попытка тоже считается: повтор не раньше чем через час (иначе общий адрес офиса быстро упирается в лимит GitHub)
+                Store.Settings["updLast"] = DateTime.UtcNow.AddHours(-11).Ticks.ToString(); Store.Save();
+                Fire();
                 if (manual) ChatToast.Info(T("updNoNet") + ": " + err, true);
                 return;
             }
@@ -113,8 +170,14 @@ namespace NamazBar
                 string n = J.Str(a, "name") ?? "";
                 if (n.EndsWith("-windows.exe", StringComparison.OrdinalIgnoreCase)) { AssetUrl = J.Str(a, "browser_download_url"); AssetSize = J.Long(a, "size"); }
             }
-            Available = lv > CurrentVer() && AssetUrl != null;
+            bool newer = lv > CurrentVer();
+            Available = newer && AssetUrl != null;
             Fire();
+            if (newer && AssetUrl == null)   // тег уже есть, а установщик ещё не загружен: идёт выпуск (Release action)
+            {
+                if (manual) ChatToast.Info(string.Format(T("updPending"), LatestTag), false);
+                return;
+            }
             if (Available)
             {
                 bool seen = Store.Get("updSeen", "") == LatestTag;

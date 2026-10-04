@@ -620,7 +620,7 @@ namespace NamazBar
             Chat.Incoming += delegate(ChatGroup g, ChatMsg m)
             {
                 Chat.RememberLine(g, m);
-                bool watching = ChatDock.IsWatching(g);
+                bool watching = ChatDock.IsWatching(g) || BreakChat.Showing;
                 if (!watching) ChatToast.Message(g, m);
                 Beep();
             };
@@ -678,6 +678,7 @@ namespace NamazBar
             { "quick",    new[] { "Tezkor xabarlar", "Тезкор хабарлар", "Быстрые сообщения", "Quick messages" } },
             { "noGroupHint", new[] { "Kodni do'stlaringizga yuboring: ular qo'shilishni so'raydi, siz tasdiqlaysiz.", "Кодни дўстларингизга юборинг: улар қўшилишни сўрайди, сиз тасдиқлайсиз.", "Отправьте код друзьям: они попросятся в группу, а вы подтвердите.", "Share the code with friends: they ask to join and you approve." } },
             { "settings", new[] { "Sozlamalar", "Созламалар", "Настройки", "Settings" } },
+            { "callPrayer", new[] { "Namozga chaqirish", "Намозга чақириш", "Позвать на намаз", "Call to prayer" } },
             { "chatCleared", new[] { "Chat tozalandi", "Чат тозаланди", "Чат очищен", "Chat cleared" } },
             { "copied",   new[] { "Kod nusxalandi", "Код нусхаланди", "Код скопирован", "Code copied" } },
             { "today",    new[] { "Bugun", "Бугун", "Сегодня", "Today" } },
@@ -950,13 +951,22 @@ namespace NamazBar
         public ChatRowItem(ChatMember m, string head, float k)
         {
             this.member = m; this.head = head; this.k = k;
-            AutoSize = false; Padding = Padding.Empty;
+            AutoSize = true; Padding = Padding.Empty;
             Size = new Size((int)(270 * k), (int)((head != null ? 30 : 34) * k));
             if (fHead == null) fHead = Fonts.Get("NB Sans Bold", 9.5f, "Segoe UI", FontStyle.Bold);
             if (fNick == null) fNick = Fonts.Get("NB Sans", 10.5f, "Segoe UI", FontStyle.Regular);
         }
 
-        public override Size GetPreferredSize(Size constrainingSize) { return Size; }
+        // Ширина по тексту (длинный ник или название группы расширяет меню), но не больше 380 px: дальше — многоточие
+        public override Size GetPreferredSize(Size constrainingSize)
+        {
+            TextFormatFlags mf = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+            int textW, extra;
+            if (head != null) { textW = TextRenderer.MeasureText(head, fHead, new Size(3000, 100), mf).Width; extra = (int)(28 * k); }
+            else { textW = TextRenderer.MeasureText(member.Nick ?? "", fNick, new Size(3000, 100), mf).Width; extra = (int)((14 + 24 + 10 + 18 + 10 + 14) * k); }
+            int w = Math.Max((int)(270 * k), Math.Min(textW + extra, (int)(380 * k)));
+            return new Size(w, Size.Height);
+        }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -2012,4 +2022,104 @@ namespace NamazBar
             base.OnPaint(e);
         }
     }
+
+    // Чат на экране перерыва на намаз (правая половина экрана): те же вкладки групп, пузыри, быстрые фразы, что и в окне чата
+    class BreakChat : Panel
+    {
+        public static bool Showing;
+        readonly UiTabs tabs; readonly MessageView msgs; readonly UiButton call; readonly Snackbar snack;
+        readonly List<UiButton> chips = new List<UiButton>();
+        int gi;
+
+        public BreakChat()
+        {
+            BackColor = Ui.Bg; DoubleBuffered = true;
+            tabs = new UiTabs(); tabs.Changed += delegate { gi = tabs.Selected; Refresh2(); };
+            msgs = new MessageView(); snack = new Snackbar();
+            call = new UiButton(ChatT.T("callPrayer"), UiKind.Primary); call.Font = Ui.Title; call.Click += delegate { Send("together"); };
+            foreach (string id in ChatT.PresetIds)
+            {
+                if (id == "together") continue;
+                string pid = id;
+                UiButton b = new UiButton(ChatT.Preset(id, id), UiKind.Chip); b.Font = Ui.Small; b.Height = Ui.S(28);
+                b.Click += delegate { Send(pid); };
+                chips.Add(b);
+            }
+            Controls.Add(snack); Controls.Add(tabs); Controls.Add(msgs); Controls.Add(call);
+            foreach (UiButton b in chips) Controls.Add(b);
+            Showing = true;
+            Chat.Changed += OnChanged;
+            Disposed += delegate { Chat.Changed -= OnChanged; Showing = false; Chat.Active = null; };
+            Refresh2();
+        }
+
+        ChatGroup Current { get { return gi >= 0 && gi < Chat.Groups.Count ? Chat.Groups[gi] : null; } }
+
+        void Send(string id)
+        {
+            ChatGroup g = Current; if (g == null) return;
+            if (!Chat.Connected) { snack.Show(ChatT.T("notConn"), true); return; }
+            Chat.SendPreset(g.Code, id);
+            snack.Show("\u2713  " + ChatT.Preset(id, id), false);
+        }
+
+        void OnChanged() { if (!IsDisposed) Refresh2(); }
+
+        void Refresh2()
+        {
+            int n = Chat.Groups.Count;
+            if (gi >= n) gi = 0;
+            string[] names = new string[n];
+            for (int i = 0; i < n; i++) names[i] = Chat.Groups[i].Name + "  \u00B7  " + Chat.Groups[i].OnlineCount + "/" + Chat.Groups[i].Members.Count;
+            tabs.Items = names;
+            if (tabs.Selected != gi) tabs.Selected = gi;
+            tabs.Invalidate();
+            ChatGroup g = Current;
+            if (g != null) { g.Unread = 0; Chat.Active = g; }
+            msgs.SetGroup(g);
+            bool ok = Chat.Connected;
+            call.Enabled = ok; foreach (UiButton b in chips) b.Enabled = ok;
+            Layout2();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            Layout2();
+            try { using (GraphicsPath p = Ui.Round(new Rectangle(0, 0, Width, Height), Ui.S(14))) Region = new System.Drawing.Region(p); } catch { }
+        }
+
+        void Layout2()
+        {
+            if (Width < 50 || Height < 50) return;
+            int pad = Ui.S(12), W = Width, y = 0;
+            tabs.SetBounds(0, 0, W, Ui.S(38)); y = tabs.Bottom;
+            // снизу вверх: быстрые фразы, большая кнопка «Позвать на намаз»
+            int rowH = Ui.S(28), gap = Ui.S(6), cx = pad, cy = 0;
+            List<Rectangle> pos = new List<Rectangle>();
+            foreach (UiButton b in chips)
+            {
+                int w = Math.Min(W - 2 * pad, b.PreferredWidth());
+                if (cx + w > W - pad && cx > pad) { cx = pad; cy += rowH + gap; }
+                pos.Add(new Rectangle(cx, cy, w, rowH)); cx += w + gap;
+            }
+            int chipsH = chips.Count == 0 ? 0 : cy + rowH;
+            int callH = Ui.S(46);
+            int bottom = Height - pad;
+            int chipsTop = bottom - chipsH;
+            for (int i = 0; i < chips.Count; i++) chips[i].SetBounds(pos[i].X, chipsTop + pos[i].Y, pos[i].Width, pos[i].Height);
+            call.SetBounds(pad, chipsTop - gap * 2 - callH, W - 2 * pad, callH);
+            int msgsBottom = call.Top - pad;
+            msgs.SetBounds(0, y, W, Math.Max(Ui.S(40), msgsBottom - y));
+            snack.SetBounds(pad, call.Top - Ui.S(52), W - 2 * pad, Ui.S(44));
+            if (snack.Visible) snack.BringToFront();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            using (Pen p = new Pen(Ui.Border, 1f)) e.Graphics.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
+            base.OnPaint(e);
+        }
+    }
+
 }
