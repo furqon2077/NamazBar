@@ -1067,18 +1067,20 @@ namespace NamazBar
             catch { return false; }
         }
         static Color C(int r, int g, int b) { return Color.FromArgb(r, g, b); }
-        public static Color Bg { get { return Dark ? C(32, 33, 36) : C(255, 255, 255); } }           // окно и сообщения
-        public static Color Panel { get { return Dark ? C(41, 42, 45) : C(248, 249, 250); } }        // шапка, вкладки, быстрые ответы
-        public static Color Raised { get { return Dark ? C(48, 49, 52) : C(241, 243, 244); } }       // чужие сообщения, поля, чипы
-        public static Color Border { get { return Dark ? C(60, 64, 67) : C(218, 220, 224); } }
-        public static Color Text { get { return Dark ? C(232, 234, 237) : C(32, 33, 36); } }
-        public static Color Dim { get { return Dark ? C(154, 160, 166) : C(95, 99, 104); } }
-        public static Color Accent { get { return Dark ? C(138, 180, 248) : C(26, 115, 232); } }     // синий Google
-        public static Color OnAccent { get { return Dark ? C(32, 33, 36) : C(255, 255, 255); } }
-        public static Color MineBubble { get { return Dark ? C(47, 72, 112) : C(211, 227, 253); } }
+        // «Ночная» тема экрана перерыва: изумруд и лазурит с золотым акцентом — в тон фону экрана, вместо нейтрального серого
+        public static bool Night;
+        public static Color Bg { get { if (Night) return C(11, 38, 46); return Dark ? C(32, 33, 36) : C(255, 255, 255); } }           // окно и сообщения
+        public static Color Panel { get { if (Night) return C(15, 46, 54); return Dark ? C(41, 42, 45) : C(248, 249, 250); } }        // шапка, вкладки, быстрые ответы
+        public static Color Raised { get { if (Night) return C(22, 58, 66); return Dark ? C(48, 49, 52) : C(241, 243, 244); } }       // чужие сообщения, поля, чипы
+        public static Color Border { get { if (Night) return C(66, 92, 84); return Dark ? C(60, 64, 67) : C(218, 220, 224); } }
+        public static Color Text { get { if (Night) return C(246, 238, 218); return Dark ? C(232, 234, 237) : C(32, 33, 36); } }
+        public static Color Dim { get { if (Night) return C(186, 180, 154); return Dark ? C(154, 160, 166) : C(95, 99, 104); } }
+        public static Color Accent { get { if (Night) return C(222, 186, 98); return Dark ? C(138, 180, 248) : C(26, 115, 232); } }     // синий Google
+        public static Color OnAccent { get { if (Night) return C(10, 40, 34); return Dark ? C(32, 33, 36) : C(255, 255, 255); } }
+        public static Color MineBubble { get { if (Night) return C(20, 88, 68); return Dark ? C(47, 72, 112) : C(211, 227, 253); } }
         public static Color Danger { get { return Dark ? C(242, 139, 130) : C(217, 48, 37); } }
-        public static Color Online { get { return Dark ? C(87, 201, 121) : C(30, 142, 62); } }
-        public static Color Offline { get { return Dark ? C(128, 134, 139) : C(154, 160, 166); } }
+        public static Color Online { get { if (Night) return C(110, 220, 140); return Dark ? C(87, 201, 121) : C(30, 142, 62); } }
+        public static Color Offline { get { if (Night) return C(128, 142, 138); return Dark ? C(128, 134, 139) : C(154, 160, 166); } }
 
         static Font body, bold, small, big, caps, title;
         public static Font Title { get { if (title == null) title = Fonts.Get("NB Sans Medium", 10.5f, "Segoe UI Semibold", FontStyle.Regular); return title; } }
@@ -2031,12 +2033,12 @@ namespace NamazBar
         readonly List<UiButton> chips = new List<UiButton>();
         int gi;
 
-        static int users; static bool savedDark;
+        static int users;
 
         public BreakChat()
         {
-            // На тёмно-зелёном экране перерыва чат делаем светлым нейтральным (как в светлой теме Windows), даже если Windows тёмная
-            if (users++ == 0) { savedDark = Ui.Dark; Ui.Dark = false; }
+            // Чат на экране перерыва оформлен в той же изумрудно-лазуритовой гамме, что и сам экран
+            if (users++ == 0) Ui.Night = true;
             BackColor = Ui.Bg; DoubleBuffered = true;
             tabs = new UiTabs(); tabs.Changed += delegate { gi = tabs.Selected; Refresh2(); };
             msgs = new MessageView(); snack = new Snackbar();
@@ -2053,7 +2055,7 @@ namespace NamazBar
             foreach (UiButton b in chips) Controls.Add(b);
             Showing = true;
             Chat.Changed += OnChanged;
-            Disposed += delegate { Chat.Changed -= OnChanged; Showing = false; Chat.Active = null; if (--users <= 0) { users = 0; Ui.Dark = savedDark; } };
+            Disposed += delegate { Chat.Changed -= OnChanged; Showing = false; Chat.Active = null; if (--users <= 0) { users = 0; Ui.Night = false; } };
             Refresh2();
         }
 
