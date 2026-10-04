@@ -23,6 +23,12 @@
     <!-- только значок в строке меню, без Dock -->
     <key>LSUIElement</key>
     <true/>
+    <!-- чат: ws:// допускается только для локальной сети; в интернете — wss:// -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSHumanReadableCopyright</key>

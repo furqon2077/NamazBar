@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         selectRegion(Store.int("regionId", 27))
         menu.delegate = self
         statusItem.menu = menu
+        ChatHooks.install()
         recalc()
         tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.onTick() }
         if Store.get("autostartSet", "") == "" { setAutostart(true); Store.set("autostartSet", "1") }
@@ -210,6 +211,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(it)
         }
         menu.addItem(.separator())
+        menu.addItem(item(ChatT.T("menu"), #selector(openChat)))
+        menu.addItem(.separator())
 
         let city = NSMenuItem(title: Lang.T("city"), action: nil, keyEquivalent: ""); city.submenu = NSMenu()
         let other = NSMenu()
@@ -259,7 +262,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func pickCity(_ s: NSMenuItem) { if let id = s.representedObject as? Int { Store.set("regionId", "\(id)"); selectRegion(id); lastPeriod = Int.min; recalc() } }
-    @objc func pickLang(_ s: NSMenuItem) { if let i = s.representedObject as? Int { Lang.cur = i; Store.set("lang", Lang.codes[i]); recalc() } }
+    @objc func pickLang(_ s: NSMenuItem) { if let i = s.representedObject as? Int { Lang.cur = i; Store.set("lang", Lang.codes[i]); ChatWindow.reopen(); recalc() } }
+    @objc func openChat() { ChatWindow.show() }
     @objc func pickShowCurrent(_ s: NSMenuItem) { if let m = s.representedObject as? Int { Store.set("showCurrent", "\(m)"); recalc() } }
     @objc func pickBreak(_ s: NSMenuItem) { if let a = s.representedObject as? [Int] { Store.set("break\(a[0])", "\(a[1])") } }
     @objc func toggle(_ s: NSMenuItem) {
