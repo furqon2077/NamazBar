@@ -2285,7 +2285,7 @@ namespace NamazBar
             Lang.Cur = idx;
             Store.Settings["lang"] = Lang.Codes[idx]; Store.Save();
             BuildMenu();
-            if (ChatForm.IsOpen) { ChatForm.CloseIfOpen(); ChatForm.ShowSingle(); }   // перерисовать на новом языке
+            ChatDock.Reopen();   // перерисовать на новом языке
             lastKey = null; Recalc(); UpdateTooltip(); Redraw();
         }
 
@@ -2416,7 +2416,7 @@ namespace NamazBar
             Store.Settings["skin"] = id; Store.Save();
             ApplyTheme();
             BuildMenu();
-            if (ChatForm.IsOpen) { ChatForm.CloseIfOpen(); ChatForm.ShowSingle(); }
+            ChatDock.Reopen();
             lastKey = null; Recalc(); UpdateTooltip(); PlaceOnTaskbar(); Redraw();
         }
 
