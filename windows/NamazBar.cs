@@ -2235,7 +2235,7 @@ namespace NamazBar
                 else if (view.Alert) StopAlert();          // клик гасит подсветку
                 dragging = false;
             }
-            else if (e.Button == MouseButtons.Right) { RebuildCityMenu(); menu.Show(Cursor.Position); }
+            else if (e.Button == MouseButtons.Right) { RebuildCityMenu(); ChatMenu.Rebuild(chatMenu); menu.Show(Cursor.Position); }
             base.OnMouseUp(e);
         }
 
@@ -2282,7 +2282,7 @@ namespace NamazBar
             lastKey = null; Recalc(); UpdateTooltip(); Redraw();
         }
 
-        ToolStripMenuItem cityMenu;
+        ToolStripMenuItem cityMenu, chatMenu;
         // Меню сгруппировано: чат · город и язык · оформление · уведомления · настройки · выход
         void BuildMenu()
         {
@@ -2291,7 +2291,9 @@ namespace NamazBar
             MenuUi.Style(menu);
             string sec = " " + Lang.T("sec"), mn = " " + Lang.T("min");
 
-            menu.Items.Add(MenuUi.Item(ChatT.T("menu"), "\uE8F2", delegate { ChatForm.ShowSingle(); }));
+            chatMenu = MenuUi.Sub(ChatT.T("menu"), "\uE8F2");   // наполняется при показе меню: участники группы, быстрые фразы
+            ChatMenu.Rebuild(chatMenu);
+            menu.Items.Add(chatMenu);
             menu.Items.Add(new ToolStripSeparator());
 
             cityMenu = MenuUi.Sub(Lang.T("city"), "\uE707");

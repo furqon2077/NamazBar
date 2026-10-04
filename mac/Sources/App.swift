@@ -216,7 +216,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(it)
         }
         menu.addItem(.separator())
-        menu.addItem(withIconTop(item(ChatT.T("menu"), #selector(openChat)), "bubble.left.and.bubble.right"))
+        // «Чат»: при наведении — группа и участники (онлайн сверху), быстрые фразы; окно чата — в самом низу подменю
+        let chat = NSMenuItem(title: ChatT.T("menu"), action: nil, keyEquivalent: "")
+        chat.image = NSImage(systemSymbolName: "bubble.left.and.bubble.right", accessibilityDescription: nil)
+        let chatSub = NSMenu(); fillChatMenu(chatSub); chat.submenu = chatSub
+        menu.addItem(chat)
         menu.addItem(.separator())
 
         func sub(_ title: String, _ symbol: String?) -> NSMenuItem {
