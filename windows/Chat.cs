@@ -521,13 +521,13 @@ namespace NamazBar
             Chat.Incoming += delegate(ChatGroup g, ChatMsg m)
             {
                 Chat.RememberLine(g, m);
-                bool watching = (ChatForm.IsOpen && Form.ActiveForm is ChatForm && Chat.Active == g) || ChatDock.IsWatching(g);
+                bool watching = ChatDock.IsWatching(g);
                 if (!watching) ChatToast.Message(g, m);
                 Beep();
             };
             Chat.JoinRequested += delegate(JoinReq r) { ChatToast.Request(r); Beep(); };
             Chat.JoinSettled += delegate(string id) { ChatToast.Settled(id); };
-            Chat.Notice += delegate(string text, bool error) { if (!ChatForm.IsOpen) ChatToast.Info(text, error); };
+            Chat.Notice += delegate(string text, bool error) { if (!ChatDock.IsOpen) ChatToast.Info(text, error); };
             Chat.Start();
             System.Windows.Forms.Timer prune = new System.Windows.Forms.Timer { Interval = 30000 };
             prune.Tick += delegate { Chat.PruneTick(); };
@@ -576,6 +576,7 @@ namespace NamazBar
             { "copied",   new[] { "Kod nusxalandi", "Код нусхаланди", "Код скопирован", "Code copied" } },
             { "today",    new[] { "Bugun", "Бугун", "Сегодня", "Today" } },
             { "yesterday", new[] { "Kecha", "Кеча", "Вчера", "Yesterday" } },
+            { "setupBtn", new[] { "Chatni sozlash", "Чатни созлаш", "Настроить чат", "Set up chat" } },
             { "openChat", new[] { "Chatni ochish", "Чатни очиш", "Открыть чат", "Open chat" } },
             { "chatTab",  new[] { "Chat", "Чат", "Чат", "Chat" } },
             { "members",  new[] { "A'zolar", "Аъзолар", "Участники", "Members" } },
@@ -608,7 +609,7 @@ namespace NamazBar
     static class Avatars
     {
         static readonly Dictionary<string, Image> cache = new Dictionary<string, Image>();
-        static readonly Color[] tints = { Palette.Emerald, Palette.Lapis, Palette.GoldDeep, Palette.Terracotta, Palette.Saffron, Color.FromArgb(90, 70, 130) };
+        static readonly Color[] tints = { Color.FromArgb(66, 133, 244), Color.FromArgb(219, 68, 55), Color.FromArgb(15, 157, 88), Color.FromArgb(171, 71, 188), Color.FromArgb(0, 137, 123), Color.FromArgb(244, 124, 32) };
 
         static Image Decode(string dataUrl)
         {
@@ -725,7 +726,7 @@ namespace NamazBar
         {
             this.who = who; this.line1 = line1; this.line2 = line2;
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
-            TopMost = true; DoubleBuffered = true; BackColor = Palette.EmeraldDark;
+            TopMost = true; DoubleBuffered = true; BackColor = Ui.Panel;
             using (Graphics g = CreateGraphics()) k = g.DpiX / 96f;
             Size = new Size((int)(360 * k), (int)((hasButtons ? 112 : 72) * k));
             if (hasButtons)
@@ -743,7 +744,7 @@ namespace NamazBar
         {
             Button b = new Button();
             b.Text = text; b.FlatStyle = FlatStyle.Flat; b.FlatAppearance.BorderSize = 0;
-            b.BackColor = primary ? Palette.Gold : Palette.Emerald; b.ForeColor = primary ? Palette.Ink : Palette.Ivory;
+            b.BackColor = primary ? Ui.Accent : Ui.Raised; b.ForeColor = primary ? Ui.OnAccent : Ui.Text;
             b.Bounds = new Rectangle((int)(x * k), (int)(70 * k), (int)(108 * k), (int)(30 * k));
             b.Font = Fonts.Get("NB Sans Medium", 9f, "Segoe UI Semibold", FontStyle.Regular);
             return b;
@@ -810,18 +811,18 @@ namespace NamazBar
         {
             Graphics g = e.Graphics;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            using (Pen p = new Pen(Palette.Gold, 2f)) g.DrawRectangle(p, 1, 1, Width - 3, Height - 3);
+            using (Pen p = new Pen(Ui.Border, 1f)) g.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
             int av = (int)(44 * k), pad = (int)(14 * k);
             if (who != null) Avatars.Draw(g, new Rectangle(pad, pad, av, av), who.UserId, who.Nick, who.Avatar);
             int x = who != null ? pad + av + (int)(10 * k) : pad;
             Rectangle r1 = new Rectangle(x, pad - 2, Width - x - pad, (int)(24 * k));
             using (Font f = Fonts.Get("NB Sans Bold", 9.5f, "Segoe UI", FontStyle.Bold))
-                TextRenderer.DrawText(g, line1, f, r1, Palette.Gold, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+                TextRenderer.DrawText(g, line1, f, r1, Ui.Text, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
             if (line2.Length > 0)
             {
                 Rectangle r2 = new Rectangle(x, pad + (int)(22 * k), Width - x - pad, (int)(32 * k));
                 using (Font f = Fonts.Get("NB Sans", 9.5f, "Segoe UI", FontStyle.Regular))
-                    TextRenderer.DrawText(g, line2, f, r2, Palette.Ivory, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+                    TextRenderer.DrawText(g, line2, f, r2, Ui.Dim, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
             }
         }
     }
@@ -922,20 +923,10 @@ namespace NamazBar
                     }
                     root.DropDownItems.Add(send);
                 }
-                root.DropDownItems.Add(MenuUi.Item(ChatT.T("create") + "…", null, delegate
-                {
-                    string n = Dlg.Ask(null, ChatT.T("create"), ChatT.T("newName"), "");
-                    if (!string.IsNullOrEmpty(n)) Chat.CreateGroup(n);
-                }));
-                root.DropDownItems.Add(MenuUi.Item(ChatT.T("join") + "…", null, delegate
-                {
-                    string c = Dlg.Ask(null, ChatT.T("join"), ChatT.T("enterCode"), "");
-                    if (!string.IsNullOrEmpty(c)) Chat.RequestJoin(c);
-                }));
+                root.DropDownItems.Add(MenuUi.Item(ChatT.T("create") + " / " + ChatT.T("join") + "…", null, delegate { ChatDock.ShowDock(true); }));
                 root.DropDownItems.Add(new ToolStripSeparator());
             }
             root.DropDownItems.Add(MenuUi.Item(ChatT.T("openChat"), null, ShowWindow));
-            root.DropDownItems.Add(MenuUi.Item(ChatT.T("openWin"), null, delegate { ChatForm.ShowSingle(); }));
         }
     }
 
@@ -947,18 +938,33 @@ namespace NamazBar
         static float Dpi() { using (Bitmap b = new Bitmap(1, 1)) using (Graphics g = Graphics.FromImage(b)) return g.DpiX / 96f; }
         public static int S(float v) { return (int)Math.Round(v * K); }
 
-        public static Color Bg { get { return View.Mix(Palette.EmeraldDark, Color.Black, 0.55); } }       // окно и сообщения
-        public static Color Panel { get { return View.Mix(Palette.EmeraldDark, Color.Black, 0.28); } }    // боковая панель
-        public static Color Raised { get { return View.Mix(Palette.EmeraldDark, Palette.Ivory, 0.12); } } // поля, чужие сообщения
-        public static Color Text { get { return Palette.Ivory; } }
-        public static Color Dim { get { return View.Mix(Palette.Ivory, Bg, 0.42); } }
-        public static Color Online { get { return Color.FromArgb(70, 200, 120); } }
+        // Нейтральная тема в духе Google: светлая или тёмная — как в настройках Windows, один синий акцент, не зависит от скина
+        public static bool Dark = DetectDark();
+        static bool DetectDark()
+        {
+            try { object v = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1); return v is int && (int)v == 0; }
+            catch { return false; }
+        }
+        static Color C(int r, int g, int b) { return Color.FromArgb(r, g, b); }
+        public static Color Bg { get { return Dark ? C(32, 33, 36) : C(255, 255, 255); } }           // окно и сообщения
+        public static Color Panel { get { return Dark ? C(41, 42, 45) : C(248, 249, 250); } }        // шапка, вкладки, быстрые ответы
+        public static Color Raised { get { return Dark ? C(48, 49, 52) : C(241, 243, 244); } }       // чужие сообщения, поля, чипы
+        public static Color Border { get { return Dark ? C(60, 64, 67) : C(218, 220, 224); } }
+        public static Color Text { get { return Dark ? C(232, 234, 237) : C(32, 33, 36); } }
+        public static Color Dim { get { return Dark ? C(154, 160, 166) : C(95, 99, 104); } }
+        public static Color Accent { get { return Dark ? C(138, 180, 248) : C(26, 115, 232); } }     // синий Google
+        public static Color OnAccent { get { return Dark ? C(32, 33, 36) : C(255, 255, 255); } }
+        public static Color MineBubble { get { return Dark ? C(47, 72, 112) : C(211, 227, 253); } }
+        public static Color Danger { get { return Dark ? C(242, 139, 130) : C(217, 48, 37); } }
+        public static Color Online { get { return Dark ? C(87, 201, 121) : C(30, 142, 62); } }
+        public static Color Offline { get { return Dark ? C(128, 134, 139) : C(154, 160, 166); } }
 
-        static Font body, bold, small, big, caps;
-        public static Font Body { get { if (body == null) body = Fonts.Get("NB Sans", 10f, "Segoe UI", FontStyle.Regular); return body; } }
-        public static Font Medium { get { if (bold == null) bold = Fonts.Get("NB Sans Medium", 10f, "Segoe UI Semibold", FontStyle.Regular); return bold; } }
-        public static Font Small { get { if (small == null) small = Fonts.Get("NB Sans", 8.5f, "Segoe UI", FontStyle.Regular); return small; } }
-        public static Font Big { get { if (big == null) big = Fonts.Get("NB Sans Bold", 14f, "Segoe UI", FontStyle.Bold); return big; } }
+        static Font body, bold, small, big, caps, title;
+        public static Font Title { get { if (title == null) title = Fonts.Get("NB Sans Medium", 10.5f, "Segoe UI Semibold", FontStyle.Regular); return title; } }
+        public static Font Body { get { if (body == null) body = Fonts.Get("NB Sans", 9.5f, "Segoe UI", FontStyle.Regular); return body; } }
+        public static Font Medium { get { if (bold == null) bold = Fonts.Get("NB Sans Medium", 9.5f, "Segoe UI Semibold", FontStyle.Regular); return bold; } }
+        public static Font Small { get { if (small == null) small = Fonts.Get("NB Sans", 8f, "Segoe UI", FontStyle.Regular); return small; } }
+        public static Font Big { get { if (big == null) big = Fonts.Get("NB Sans Bold", 12f, "Segoe UI", FontStyle.Bold); return big; } }
         public static Font Caps { get { if (caps == null) caps = Fonts.Get("NB Sans Bold", 8f, "Segoe UI", FontStyle.Bold); return caps; } }
 
         public static GraphicsPath Round(Rectangle r, int rad)
@@ -994,12 +1000,12 @@ namespace NamazBar
         {
             Text = text; Kind = kind; TabStop = true; Cursor = Cursors.Hand; Font = Ui.Medium;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
-            Height = Ui.S(kind == UiKind.Chip ? 34 : 38);
+            Height = Ui.S(kind == UiKind.Chip ? 28 : 34);
         }
         public int PreferredWidth()
         {
             Size t = TextRenderer.MeasureText(Text, Font, new Size(2000, 100), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-            return t.Width + Ui.S(Kind == UiKind.Chip ? 34 : 28);
+            return t.Width + Ui.S(Kind == UiKind.Chip ? 24 : 24);
         }
         protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
         protected override void OnMouseLeave(EventArgs e) { hover = false; down = false; Invalidate(); base.OnMouseLeave(e); }
@@ -1019,28 +1025,28 @@ namespace NamazBar
             g.Clear(behind);
             Rectangle r = new Rectangle(0, 0, Width - 1, Height - 1);
             int rad = Kind == UiKind.Chip ? Height / 2 : Ui.S(8);
-            double vis = Enabled ? 1.0 : 0.45;
+            double vis = Enabled ? 1.0 : 0.5;
             Color fill = Color.Empty, border = Color.Empty, fg;
             switch (Kind)
             {
-                case UiKind.Primary:
-                    fill = down ? View.Mix(Palette.Gold, Color.Black, 0.18) : (hover ? View.Mix(Palette.Gold, Color.White, 0.18) : Palette.Gold);
-                    fg = Palette.Ink; break;
-                case UiKind.Danger:
-                    border = Palette.Terracotta; fill = down ? Color.FromArgb(70, Palette.Terracotta) : (hover ? Color.FromArgb(40, Palette.Terracotta) : Color.Empty);
-                    fg = Color.FromArgb(255, 170, 140); break;
-                case UiKind.Chip:
-                    border = View.Mix(behind, Palette.Gold, 0.55); fill = down ? Palette.Emerald : (hover ? View.Mix(Palette.Emerald, Palette.Gold, 0.15) : View.Mix(behind, Palette.Emerald, 0.55));
-                    fg = Palette.Ivory; break;
-                default:
-                    border = View.Mix(behind, Palette.Gold, 0.65); fill = down ? Color.FromArgb(50, Palette.Gold) : (hover ? Color.FromArgb(28, Palette.Gold) : Color.Empty);
-                    fg = Palette.Ivory; break;
+                case UiKind.Primary:      // залитая синяя кнопка
+                    fill = down ? View.Mix(Ui.Accent, Color.Black, 0.2) : (hover ? View.Mix(Ui.Accent, Color.White, Ui.Dark ? 0.15 : 0.08) : Ui.Accent);
+                    fg = Ui.OnAccent; break;
+                case UiKind.Danger:       // контурная, красный текст
+                    border = Ui.Border; fill = down ? Color.FromArgb(50, Ui.Danger) : (hover ? Color.FromArgb(24, Ui.Danger) : Color.Empty);
+                    fg = Ui.Danger; break;
+                case UiKind.Chip:         // быстрые ответы: контур и нейтральный фон
+                    border = Ui.Border; fill = down ? View.Mix(behind, Ui.Text, 0.16) : (hover ? Ui.Raised : Color.Empty);
+                    fg = Ui.Text; break;
+                default:                  // контурная, синий текст
+                    border = Ui.Border; fill = down ? Color.FromArgb(40, Ui.Accent) : (hover ? Color.FromArgb(22, Ui.Accent) : Color.Empty);
+                    fg = Ui.Accent; break;
             }
             if (fill != Color.Empty) Ui.FillRound(g, r, rad, Ui.Fade(fill, behind, vis * (fill.A / 255.0)));
-            if (border != Color.Empty) Ui.StrokeRound(g, r, rad, Ui.Fade(border, behind, vis), 1.2f);
+            if (border != Color.Empty) Ui.StrokeRound(g, r, rad, Ui.Fade(border, behind, vis), 1f);
             Color text = Enabled ? fg : View.Mix(behind, fg, 0.5);
             TextRenderer.DrawText(g, Text, Font, new Rectangle(0, 0, Width, Height), text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-            if (Focused && ShowFocusCues) Ui.StrokeRound(g, new Rectangle(2, 2, Width - 5, Height - 5), Math.Max(2, rad - 2), Palette.Ivory, 1f);
+            if (Focused && ShowFocusCues) Ui.StrokeRound(g, new Rectangle(2, 2, Width - 5, Height - 5), Math.Max(2, rad - 2), Ui.Accent, 1f);
         }
     }
 
@@ -1068,12 +1074,12 @@ namespace NamazBar
             g.Clear(behind);
             int tw = Ui.S(36), th = Ui.S(20), ty = Ui.S(2);
             Rectangle track = new Rectangle(0, ty, tw, th);
-            Ui.FillRound(g, track, th / 2, on ? Palette.Gold : View.Mix(behind, Palette.Ivory, 0.22));
+            Ui.FillRound(g, track, th / 2, on ? Ui.Accent : Ui.Border);
             int kn = th - Ui.S(6);
             int kx = on ? tw - kn - Ui.S(3) : Ui.S(3);
-            using (SolidBrush b = new SolidBrush(on ? Palette.Ink : Palette.Ivory)) g.FillEllipse(b, kx, ty + Ui.S(3), kn, kn);
-            if (Focused && ShowFocusCues) Ui.StrokeRound(g, new Rectangle(-1, ty - 1, tw + 1, th + 1), th / 2, Palette.Ivory, 1f);
-            TextRenderer.DrawText(g, Text, Font, new Rectangle(tw + Ui.S(10), 0, Width - tw - Ui.S(10), Height), Palette.Ivory, TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+            using (SolidBrush b = new SolidBrush(on ? Ui.OnAccent : Ui.Dim)) g.FillEllipse(b, kx, ty + Ui.S(3), kn, kn);
+            if (Focused && ShowFocusCues) Ui.StrokeRound(g, new Rectangle(-1, ty - 1, tw + 1, th + 1), th / 2, Ui.Text, 1f);
+            TextRenderer.DrawText(g, Text, Font, new Rectangle(tw + Ui.S(10), 0, Width - tw - Ui.S(10), Height), Ui.Text, TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
         }
     }
 
@@ -1089,13 +1095,13 @@ namespace NamazBar
             Box = new TextBox { BorderStyle = BorderStyle.None, Text = text, Font = Ui.Body };
             Box.GotFocus += delegate { Invalidate(); }; Box.LostFocus += delegate { Invalidate(); };
             Controls.Add(Box);
-            Height = Ui.S(54);
+            Height = Ui.S(48);
         }
         public override string Text { get { return Box.Text; } set { Box.Text = value; } }
         protected override void OnLayout(LayoutEventArgs e)
         {
-            Box.BackColor = Ui.Raised; Box.ForeColor = Ui.Text;
-            Box.SetBounds(Ui.S(12), Ui.S(26), Width - Ui.S(24), Ui.S(20));
+            Box.BackColor = Ui.Bg; Box.ForeColor = Ui.Text;
+            Box.SetBounds(Ui.S(10), Ui.S(22), Width - Ui.S(20), Ui.S(18));
             base.OnLayout(e);
         }
         protected override void OnPaint(PaintEventArgs e)
@@ -1104,10 +1110,10 @@ namespace NamazBar
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
             Color behind = Parent != null ? Parent.BackColor : Ui.Bg;
             g.Clear(behind);
-            Rectangle r = new Rectangle(0, Ui.S(14), Width - 1, Height - Ui.S(14) - 1);
-            Ui.FillRound(g, r, Ui.S(8), Ui.Raised);
-            Ui.StrokeRound(g, r, Ui.S(8), Box.Focused ? Palette.Gold : View.Mix(Ui.Raised, Palette.Ivory, 0.18), Box.Focused ? 1.6f : 1f);
-            TextRenderer.DrawText(g, caption.ToUpperInvariant(), Ui.Caps, new Rectangle(Ui.S(2), 0, Width, Ui.S(14)), Palette.Gold, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+            Rectangle r = new Rectangle(0, Ui.S(12), Width - 1, Height - Ui.S(12) - 1);
+            Ui.FillRound(g, r, Ui.S(6), Ui.Bg);
+            Ui.StrokeRound(g, r, Ui.S(6), Box.Focused ? Ui.Accent : Ui.Border, Box.Focused ? 2f : 1f);
+            TextRenderer.DrawText(g, caption, Ui.Small, new Rectangle(Ui.S(2), 0, Width, Ui.S(14)), Box.Focused ? Ui.Accent : Ui.Dim, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
         }
         protected override void OnFontChanged(EventArgs e) { base.OnFontChanged(e); }
         protected override void Dispose(bool disposing) { base.Dispose(disposing); }
@@ -1129,10 +1135,10 @@ namespace NamazBar
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
             Color behind = Parent != null ? Parent.BackColor : Ui.Bg;
             g.Clear(behind);
-            Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), Height / 2, View.Mix(behind, Palette.Ivory, 0.10));
+            Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), Height / 2, View.Mix(behind, Ui.Text, 0.10));
             int d = Ui.S(9);
             using (SolidBrush b = new SolidBrush(Dot)) g.FillEllipse(b, Ui.S(10), (Height - d) / 2, d, d);
-            TextRenderer.DrawText(g, Text, Font, new Rectangle(Ui.S(26), 0, Width - Ui.S(34), Height), Palette.Ivory, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(g, Text, Font, new Rectangle(Ui.S(26), 0, Width - Ui.S(34), Height), Ui.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
         }
     }
 
@@ -1151,11 +1157,11 @@ namespace NamazBar
             int pad = Ui.S(4);
             Rectangle r = new Rectangle(pad, pad, Width - 2 * pad, Height - 2 * pad);
             Avatars.Draw(g, r, Chat.UserId, Chat.Nick, Chat.Avatar);
-            using (Pen p = new Pen(Palette.Gold, 2f)) g.DrawEllipse(p, r.X - 3, r.Y - 3, r.Width + 5, r.Height + 5);
+            using (Pen p = new Pen(Ui.Border, 1.5f)) g.DrawEllipse(p, r.X - 3, r.Y - 3, r.Width + 5, r.Height + 5);
             int b = Ui.S(20);
             Rectangle br = new Rectangle(Width - b - 1, Height - b - 1, b, b);
-            using (SolidBrush sb = new SolidBrush(Palette.Gold)) g.FillEllipse(sb, br);
-            using (Pen pp = new Pen(Palette.Ink, 2f))
+            using (SolidBrush sb = new SolidBrush(Ui.Accent)) g.FillEllipse(sb, br);
+            using (Pen pp = new Pen(Ui.OnAccent, 2f))
             {
                 g.DrawLine(pp, br.X + br.Width / 2f, br.Y + b * 0.28f, br.X + br.Width / 2f, br.Bottom - b * 0.28f);
                 g.DrawLine(pp, br.X + b * 0.28f, br.Y + br.Height / 2f, br.Right - b * 0.28f, br.Y + br.Height / 2f);
@@ -1210,54 +1216,10 @@ namespace NamazBar
             Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
             Color behind = Parent != null ? Parent.BackColor : Ui.Bg;
             g.Clear(behind);
-            if (hover || down) using (SolidBrush b = new SolidBrush(Color.FromArgb(down ? 50 : 30, Palette.Ivory))) g.FillEllipse(b, 1, 1, Width - 3, Height - 3);
+            if (hover || down) using (SolidBrush b = new SolidBrush(Color.FromArgb(down ? 50 : 30, Ui.Text))) g.FillEllipse(b, 1, 1, Width - 3, Height - 3);
             using (Font f = new Font(Family, Height * 0.38f, FontStyle.Regular, GraphicsUnit.Pixel))
-                TextRenderer.DrawText(g, Glyph, f, new Rectangle(0, 0, Width, Height), Enabled ? Palette.Ivory : Ui.Dim,
+                TextRenderer.DrawText(g, Glyph, f, new Rectangle(0, 0, Width, Height), Enabled ? Ui.Text : Ui.Dim,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-        }
-    }
-
-    // Настройки профиля и сервера (как «Настройки» в Telegram): ник, фото, адрес, переключатели
-    class ChatSettings : Form
-    {
-        readonly UiInput inNick, inServer;
-        readonly UiToggle tgAuto, tgSound;
-        readonly AvatarBox avatar;
-
-        public ChatSettings()
-        {
-            AutoScaleMode = AutoScaleMode.None;
-            Text = ChatT.T("settings");
-            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; ShowInTaskbar = false;
-            StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(Ui.S(480), Ui.S(500));
-            BackColor = Ui.Panel; ForeColor = Ui.Text; Font = Ui.Body;
-            try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-            int pad = Ui.S(24), w = ClientSize.Width - 2 * pad, y = Ui.S(22);
-            avatar = new AvatarBox { Bounds = new Rectangle((ClientSize.Width - Ui.S(96)) / 2, y, Ui.S(96), Ui.S(96)) };
-            avatar.Click += delegate { ChatForm.PickAvatar(this); avatar.Invalidate(); };
-            Label hint = new Label { Text = ChatT.T("pick"), Font = Ui.Small, ForeColor = Ui.Dim, AutoSize = false, TextAlign = ContentAlignment.MiddleCenter,
-                                      Bounds = new Rectangle(pad, y + Ui.S(100), w, Ui.S(20)), BackColor = Color.Transparent };
-            y += Ui.S(134);
-            inNick = new UiInput(ChatT.T("nick"), Chat.Nick ?? "") { Bounds = new Rectangle(pad, y, w, Ui.S(54)) }; inNick.Box.MaxLength = 24;
-            y += Ui.S(66);
-            inServer = new UiInput(ChatT.T("server"), Chat.Server ?? "") { Bounds = new Rectangle(pad, y, w, Ui.S(54)) };
-            y += Ui.S(70);
-            tgAuto = new UiToggle(ChatT.T("auto"), Store.Get("chatAuto", "0") == "1") { Bounds = new Rectangle(pad, y, w, Ui.S(40)) };
-            y += Ui.S(46);
-            tgSound = new UiToggle(ChatT.T("sound"), Store.Get("chatSound", "1") != "0") { Bounds = new Rectangle(pad, y, w, Ui.S(26)) };
-            UiButton save = new UiButton(ChatT.T("save"), UiKind.Primary) { Bounds = new Rectangle(ClientSize.Width - pad - Ui.S(120), ClientSize.Height - Ui.S(60), Ui.S(120), Ui.S(40)) };
-            UiButton cancel = new UiButton(ChatT.T("cancel"), UiKind.Secondary) { Bounds = new Rectangle(save.Left - Ui.S(12) - Ui.S(110), save.Top, Ui.S(110), Ui.S(40)) };
-            save.Click += delegate
-            {
-                Store.Settings["chatAuto"] = tgAuto.Checked ? "1" : "0";
-                Store.Settings["chatSound"] = tgSound.Checked ? "1" : "0";
-                Store.Save();
-                Chat.Configure(inServer.Text, inNick.Text);
-                DialogResult = DialogResult.OK; Close();
-            };
-            cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
-            Controls.AddRange(new Control[] { avatar, hint, inNick, inServer, tgAuto, tgSound, cancel, save });
         }
     }
 
@@ -1308,7 +1270,7 @@ namespace NamazBar
         }
 
         // ---- пузыри с «хвостиком», аватар у последнего в серии, разделители дней
-        int BubbleMaxW() { return Math.Max(S(180), (int)(ClientSize.Width * 0.72)); }
+        int BubbleMaxW() { return Math.Max(S(150), (int)(ClientSize.Width * 0.80)); }
         static int S(float v) { return Ui.S(v); }
         Size TextSize(Graphics g, string text, int maxW)
         {
@@ -1322,13 +1284,13 @@ namespace NamazBar
         {
             if (e.Index < 0 || e.Index >= Items.Count) { e.ItemHeight = S(20); return; }
             DaySep d = Items[e.Index] as DaySep;
-            if (d != null) { e.ItemHeight = S(38); return; }
+            if (d != null) { e.ItemHeight = S(32); return; }
             ChatMsg m = (ChatMsg)Items[e.Index];
             bool mine = m.From == Chat.UserId;
-            Size t = TextSize(e.Graphics, m.Display, BubbleMaxW() - S(28));
-            int bubbleH = S(9) + t.Height + S(3) + S(14) + S(7);
-            int nameH = (!mine && FirstOfRun(e.Index)) ? S(20) : 0;
-            e.ItemHeight = nameH + bubbleH + (LastOfRun(e.Index) ? S(10) : S(3));
+            Size t = TextSize(e.Graphics, m.Display, BubbleMaxW() - S(22));
+            int bubbleH = S(7) + t.Height + S(2) + S(13) + S(5);
+            int nameH = (!mine && FirstOfRun(e.Index)) ? S(17) : 0;
+            e.ItemHeight = nameH + bubbleH + (LastOfRun(e.Index) ? S(8) : S(2));
         }
 
         protected override void OnDrawItem(DrawItemEventArgs e)
@@ -1342,8 +1304,8 @@ namespace NamazBar
             {
                 Size ts = TextRenderer.MeasureText(gr, d.Text, Ui.Small, new Size(400, 40), TextFormatFlags.NoPadding);
                 Rectangle pr = new Rectangle(e.Bounds.X + (e.Bounds.Width - ts.Width - S(24)) / 2, e.Bounds.Y + S(8), ts.Width + S(24), S(24));
-                Ui.FillRound(gr, pr, S(12), View.Mix(Ui.Bg, Palette.Ivory, 0.12));
-                TextRenderer.DrawText(gr, d.Text, Ui.Small, pr, Palette.Ivory, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                Ui.FillRound(gr, pr, S(12), View.Mix(Ui.Bg, Ui.Text, 0.12));
+                TextRenderer.DrawText(gr, d.Text, Ui.Small, pr, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 return;
             }
             ChatMsg m = (ChatMsg)Items[e.Index];
@@ -1351,16 +1313,16 @@ namespace NamazBar
             bool mine = m.From == Chat.UserId;
             bool first = FirstOfRun(e.Index), last = LastOfRun(e.Index);
             string text = m.Display;
-            Size t = TextSize(gr, text, BubbleMaxW() - S(28));
+            Size t = TextSize(gr, text, BubbleMaxW() - S(22));
             string time = m.Time.ToString("HH:mm");
             int timeW = TextRenderer.MeasureText(gr, time, Ui.Small, new Size(200, 40), TextFormatFlags.NoPadding).Width;
-            int bw = Math.Max(t.Width, timeW + S(4)) + S(26);
-            int bh = S(9) + t.Height + S(3) + S(14) + S(7);
-            int top = e.Bounds.Y + ((!mine && first) ? S(20) : 0);
-            int bx = mine ? e.Bounds.Right - S(18) - bw : e.Bounds.X + S(62);
+            int bw = Math.Max(t.Width, timeW + S(4)) + S(20);
+            int bh = S(7) + t.Height + S(2) + S(13) + S(5);
+            int top = e.Bounds.Y + ((!mine && first) ? S(17) : 0);
+            int bx = mine ? e.Bounds.Right - S(14) - bw : e.Bounds.X + S(46);
             Rectangle br = new Rectangle(bx, top, bw, bh);
-            Color fill = mine ? View.Mix(Palette.Emerald, Palette.Jade, 0.14) : Ui.Raised;
-            using (GraphicsPath p = Ui.Round(br, S(14))) using (SolidBrush fb = new SolidBrush(fill)) gr.FillPath(fb, p);
+            Color fill = mine ? Ui.MineBubble : Ui.Raised;
+            using (GraphicsPath p = Ui.Round(br, S(12))) using (SolidBrush fb = new SolidBrush(fill)) gr.FillPath(fb, p);
             if (last)   // «хвостик» у последнего пузыря серии
             {
                 Point[] tail = mine
@@ -1370,16 +1332,16 @@ namespace NamazBar
             }
             if (!mine)
             {
-                if (first) TextRenderer.DrawText(gr, m.Nick, Ui.Medium, new Point(bx + S(4), e.Bounds.Y + S(1)), NickColor(m.From));
+                if (first) TextRenderer.DrawText(gr, m.Nick, Ui.Small, new Point(bx + S(4), e.Bounds.Y + S(1)), NickColor(m.From));
                 if (last)
                 {
                     ChatMember who = null;
                     if (g != null) foreach (ChatMember x in g.Members) if (x.UserId == m.From) who = x;
-                    Avatars.Draw(gr, new Rectangle(e.Bounds.X + S(16), br.Bottom - S(38), S(38), S(38)), m.From, m.Nick, who != null ? who.Avatar : null);
+                    Avatars.Draw(gr, new Rectangle(e.Bounds.X + S(10), br.Bottom - S(28), S(28), S(28)), m.From, m.Nick, who != null ? who.Avatar : null);
                 }
             }
-            TextRenderer.DrawText(gr, text, Ui.Body, new Rectangle(br.X + S(13), br.Y + S(9), t.Width + S(2), t.Height + S(2)), Palette.Ivory, TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
-            TextRenderer.DrawText(gr, time, Ui.Small, new Point(br.Right - S(13) - timeW, br.Bottom - S(7) - S(13)), View.Mix(Palette.Ivory, fill, 0.5));
+            TextRenderer.DrawText(gr, text, Ui.Body, new Rectangle(br.X + S(10), br.Y + S(7), t.Width + S(2), t.Height + S(2)), Ui.Text, TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(gr, time, Ui.Small, new Point(br.Right - S(10) - timeW, br.Bottom - S(5) - S(12)), View.Mix(Ui.Text, fill, 0.55));
         }
 
         static readonly Color[] nickTints = { Color.FromArgb(240, 150, 110), Color.FromArgb(120, 200, 150), Color.FromArgb(120, 170, 240), Color.FromArgb(220, 140, 200), Color.FromArgb(230, 200, 100), Color.FromArgb(120, 210, 210) };
@@ -1390,7 +1352,7 @@ namespace NamazBar
     class MemberList : BufListBox
     {
         public ChatGroup Group;
-        public MemberList() { DrawMode = DrawMode.OwnerDrawFixed; ItemHeight = Ui.S(56); BorderStyle = BorderStyle.None; BackColor = Ui.Bg; IntegralHeight = false; }
+        public MemberList() { DrawMode = DrawMode.OwnerDrawFixed; ItemHeight = Ui.S(46); BorderStyle = BorderStyle.None; BackColor = Ui.Bg; IntegralHeight = false; }
 
         public void SetGroup(ChatGroup g)
         {
@@ -1417,22 +1379,22 @@ namespace NamazBar
             string head = Items[e.Index] as string;
             if (head != null)
             {
-                TextRenderer.DrawText(g, head.ToUpperInvariant(), Ui.Caps, new Rectangle(e.Bounds.X + Ui.S(18), e.Bounds.Y + Ui.S(24), e.Bounds.Width, Ui.S(24)), Palette.Gold, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+                TextRenderer.DrawText(g, head, Ui.Small, new Rectangle(e.Bounds.X + Ui.S(14), e.Bounds.Y + Ui.S(16), e.Bounds.Width, Ui.S(24)), Ui.Dim, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
                 return;
             }
             ChatMember m = (ChatMember)Items[e.Index];
-            int av = Ui.S(38);
-            Rectangle ar = new Rectangle(e.Bounds.X + Ui.S(16), e.Bounds.Y + (e.Bounds.Height - av) / 2, av, av);
+            int av = Ui.S(32);
+            Rectangle ar = new Rectangle(e.Bounds.X + Ui.S(12), e.Bounds.Y + (e.Bounds.Height - av) / 2, av, av);
             Avatars.Draw(g, ar, m.UserId, m.Nick, m.Avatar);
             if (!m.Online) using (SolidBrush dim = new SolidBrush(Color.FromArgb(120, Ui.Bg))) g.FillEllipse(dim, ar);
             int d = Ui.S(11);
-            Rectangle dr = new Rectangle(e.Bounds.Right - Ui.S(28), e.Bounds.Y + (e.Bounds.Height - d) / 2, d, d);
-            using (SolidBrush dot = new SolidBrush(m.Online ? Ui.Online : Color.FromArgb(120, 124, 130))) g.FillEllipse(dot, dr);
-            int tx = ar.Right + Ui.S(12);
-            Color fg = m.Online ? Palette.Ivory : Ui.Dim;
+            Rectangle dr = new Rectangle(e.Bounds.Right - Ui.S(24), e.Bounds.Y + (e.Bounds.Height - d) / 2, d, d);
+            using (SolidBrush dot = new SolidBrush(m.Online ? Ui.Online : Ui.Offline)) g.FillEllipse(dot, dr);
+            int tx = ar.Right + Ui.S(10);
+            Color fg = m.Online ? Ui.Text : Ui.Dim;
             string nick = m.UserId == Chat.UserId ? m.Nick + "  (" + ChatT.T("you") + ")" : m.Nick;
-            TextRenderer.DrawText(g, nick, Ui.Medium, new Rectangle(tx, e.Bounds.Y + Ui.S(9), dr.X - tx - Ui.S(10), Ui.S(20)), fg, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-            TextRenderer.DrawText(g, ChatT.T(m.Online ? "stOn" : "stOff"), Ui.Small, new Rectangle(tx, e.Bounds.Y + Ui.S(29), dr.X - tx - Ui.S(10), Ui.S(16)), m.Online ? Ui.Online : Ui.Dim, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(g, nick, Ui.Medium, new Rectangle(tx, e.Bounds.Y + Ui.S(6), dr.X - tx - Ui.S(10), Ui.S(18)), fg, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(g, ChatT.T(m.Online ? "stOn" : "stOff"), Ui.Small, new Rectangle(tx, e.Bounds.Y + Ui.S(25), dr.X - tx - Ui.S(10), Ui.S(14)), m.Online ? Ui.Online : Ui.Dim, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
         }
     }
 
@@ -1458,166 +1420,285 @@ namespace NamazBar
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
             Color behind = Parent != null ? Parent.BackColor : Ui.Bg;
             g.Clear(behind);
-            using (Pen line = new Pen(Color.FromArgb(40, Palette.Ivory))) g.DrawLine(line, 0, Height - 1, Width, Height - 1);
+            using (Pen line = new Pen(Color.FromArgb(40, Ui.Text))) g.DrawLine(line, 0, Height - 1, Width, Height - 1);
             if (Items.Length == 0) return;
             int w = Width / Items.Length;
             for (int i = 0; i < Items.Length; i++)
             {
                 Rectangle r = new Rectangle(i * w, 0, w, Height - 2);
                 bool on = i == sel;
-                TextRenderer.DrawText(g, Items[i], Ui.Medium, r, on ? Palette.Ivory : (i == hot ? Palette.Ivory : Ui.Dim), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                if (on) using (SolidBrush b = new SolidBrush(Palette.Gold)) g.FillRectangle(b, r.X + Ui.S(14), Height - Ui.S(3), w - Ui.S(28), Ui.S(3));
+                TextRenderer.DrawText(g, Items[i], Ui.Medium, r, on ? Ui.Accent : (i == hot ? Ui.Text : Ui.Dim), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                if (on) using (SolidBrush b = new SolidBrush(Ui.Accent)) g.FillRectangle(b, r.X + Ui.S(14), Height - Ui.S(3), w - Ui.S(28), Ui.S(3));
             }
         }
     }
 
+    // ───────────────────────── Окно чата (в духе Telegram / WhatsApp) ─────────────────────────
+    class DaySep { public string Text; }
+
     // ───────────────────────── Док-панель чата (в духе панели «Friends» в приложении Xbox) ─────────────────────────
-    // Компактная панель над виджетом NamazBar: свёрнутая — узкая полоса «группа · онлайн ⌃», раскрытая — вкладки «Чат / Участники»,
-    // сообщения и быстрые ответы. Кнопка «↗» открывает большое окно.
+    // Единственное окно чата: компактная панель над виджетом NamazBar. Свёрнутая — узкая полоса «группа ⌃».
+    // Внутри: вкладки групп (и «+» для новой/вступить), «Чат» / «Участники», быстрые ответы, настройки профиля и сервера.
     class ChatDock : Form
     {
         static ChatDock instance;
         public static bool IsOpen { get { return instance != null && !instance.IsDisposed && instance.Visible; } }
-        public static bool IsWatching(ChatGroup g) { return IsOpen && !instance.collapsed && instance.Current == g && instance.ContainsFocus; }
+        public static bool IsWatching(ChatGroup g) { return IsOpen && !instance.collapsed && instance.CurrentGroup == g && instance.ContainsFocus; }
         public static void CloseIfOpen() { if (instance != null && !instance.IsDisposed) instance.Close(); }
-        public static void ShowDock()
+        public static void ShowDock() { ShowDock(false); }
+        public static void ShowDock(bool addGroup)
         {
             if (instance == null || instance.IsDisposed) instance = new ChatDock();
-            instance.collapsed = false;
-            instance.Show(); instance.ApplyState(); instance.Activate();
+            instance.collapsed = false; instance.forceSettings = false;
+            if (addGroup) instance.groupIdx = Chat.Groups.Count;
+            instance.Show(); instance.Refresh2(); instance.Activate();
+        }
+        public static void Reopen() { bool was = IsOpen; CloseIfOpen(); if (was) ShowDock(); }
+
+        static void PickAvatar(IWin32Window owner)
+        {
+            using (OpenFileDialog d = new OpenFileDialog())
+            {
+                d.Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif|*.*|*.*";
+                d.Title = ChatT.T("pick");
+                if (d.ShowDialog(owner) != DialogResult.OK) return;
+                try { Chat.SetAvatar(Avatars.FromFile(d.FileName)); }
+                catch (Exception ex) { Store.Log("avatar: " + ex.Message); MessageBox.Show(owner, ChatT.T("bad"), ChatT.T("title")); }
+            }
         }
 
         const int WS_EX_TOOLWINDOW = 0x80;
         protected override CreateParams CreateParams { get { CreateParams cp = base.CreateParams; cp.ExStyle |= WS_EX_TOOLWINDOW; return cp; } }
 
-        bool collapsed;
-        int groupIdx;
-        Label lblTitle, lblBadge;
-        UiIconButton btnCollapse, btnPop, btnClose;
+        bool collapsed, forceSettings, pendingSelectNew;
+        int groupIdx, view, lastGroupCount;
+        string noticeText; DateTime noticeAt = DateTime.MinValue; bool noticeError;
+        System.Windows.Forms.Timer statusTimer;
+        Label lblTitle, lblBadge, lblSetupHint, lblAddHint, lblPick;
+        UiIconButton btnCollapse, btnClose, btnGear;
         UiTabs groupTabs, viewTabs;
         MessageView msgs; MemberList memberList;
         StatusPill pill;
-        Panel quick, empty, bar;
-        UiButton btnNew, btnJoin;
+        Panel bar, quick, memberFoot, settingsPanel, addPanel;
+        UiButton btnCopyCode, btnLeave, btnSave, btnCancelSettings, btnCreate, btnJoin;
+        UiInput inNick, inServer, inName, inCode;
+        UiToggle tgAuto, tgSound;
+        AvatarBox avatarBox;
         readonly List<UiButton> chips = new List<UiButton>();
 
         int S(float v) { return Ui.S(v); }
-        ChatGroup Current { get { return Chat.Groups.Count == 0 ? null : Chat.Groups[Math.Min(groupIdx, Chat.Groups.Count - 1)]; } }
+        ChatGroup CurrentGroup { get { return groupIdx >= 0 && groupIdx < Chat.Groups.Count ? Chat.Groups[groupIdx] : null; } }
 
         ChatDock()
         {
             AutoScaleMode = AutoScaleMode.None;
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
             BackColor = Ui.Bg; ForeColor = Ui.Text; Font = Ui.Body; DoubleBuffered = true;
-            Size = new Size(S(400), S(600));
+            Size = new Size(S(340), S(470));
             Build();
-            Chat.Changed += OnChanged;
-            FormClosed += delegate { Chat.Changed -= OnChanged; Chat.Active = null; };
+            lastGroupCount = Chat.Groups.Count;
+            Chat.Changed += OnChanged; Chat.Notice += OnNotice;
+            statusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            statusTimer.Tick += delegate { UpdatePill(); };
+            statusTimer.Start();
+            FormClosed += delegate { statusTimer.Stop(); Chat.Changed -= OnChanged; Chat.Notice -= OnNotice; Chat.Active = null; };
             KeyPreview = true;
             KeyDown += delegate(object o, KeyEventArgs e) { if (e.KeyCode == Keys.Escape) Close(); };
             Deactivate += delegate { Chat.Active = null; };
-            Activated += delegate { Chat.Active = Current; if (Current != null) Current.Unread = 0; Invalidate(true); };
-            Load += delegate { ApplyState(); OnChanged(); };
+            Activated += delegate { Chat.Active = CurrentGroup; if (CurrentGroup != null) CurrentGroup.Unread = 0; Invalidate(true); };
+            Load += delegate { Refresh2(); };
         }
 
         Label MakeLabel(Font f, Color c) { return new Label { Font = f, ForeColor = c, AutoSize = false, BackColor = Color.Transparent, UseMnemonic = false, AutoEllipsis = true }; }
 
         void Build()
         {
+            // ---- шапка
             bar = new Panel { BackColor = Ui.Panel };
             bar.Click += delegate { Toggle(); };
-            lblTitle = MakeLabel(Ui.Big, Palette.Ivory); lblTitle.Click += delegate { Toggle(); }; lblTitle.Cursor = Cursors.Hand;
-            lblBadge = MakeLabel(Ui.Small, Palette.Ink); lblBadge.TextAlign = ContentAlignment.MiddleCenter; lblBadge.BackColor = Palette.Gold; lblBadge.Visible = false;
+            lblTitle = MakeLabel(Ui.Title, Ui.Text); lblTitle.TextAlign = ContentAlignment.MiddleLeft; lblTitle.Click += delegate { Toggle(); }; lblTitle.Cursor = Cursors.Hand;
+            lblBadge = MakeLabel(Ui.Small, Ui.OnAccent); lblBadge.TextAlign = ContentAlignment.MiddleCenter; lblBadge.BackColor = Ui.Accent; lblBadge.Visible = false;
             btnCollapse = new UiIconButton(""); btnCollapse.Click += delegate { Toggle(); };
-            btnPop = new UiIconButton(""); btnPop.Click += delegate { ChatForm.ShowSingle(); };
+            btnGear = new UiIconButton(""); btnGear.Click += delegate { OpenSettings(); };
             btnClose = new UiIconButton(""); btnClose.Click += delegate { Close(); };
-            bar.Controls.AddRange(new Control[] { lblTitle, lblBadge, btnPop, btnCollapse, btnClose });
-            groupTabs = new UiTabs(); groupTabs.Changed += delegate { groupIdx = groupTabs.Selected; Refresh2(); };
-            viewTabs = new UiTabs { Items = new[] { ChatT.T("chatTab"), ChatT.T("members") } }; viewTabs.Changed += delegate { Refresh2(); };
+            bar.Controls.AddRange(new Control[] { lblTitle, lblBadge, btnGear, btnCollapse, btnClose });
+
+            // ---- вкладки групп («+» — новая группа / вступить) и «Чат / Участники»
+            groupTabs = new UiTabs(); groupTabs.Changed += delegate { groupIdx = groupTabs.Selected; forceSettings = false; view = 0; viewTabs.Selected = 0; Refresh2(); };
+            viewTabs = new UiTabs { Items = new[] { ChatT.T("chatTab"), ChatT.T("members") } };
+            viewTabs.Changed += delegate { view = viewTabs.Selected; Refresh2(); };
             msgs = new MessageView(); memberList = new MemberList();
             pill = new StatusPill();
+
+            // ---- быстрые ответы
             quick = new Panel { BackColor = Ui.Panel };
-            quick.Paint += delegate(object o, PaintEventArgs e) { using (Pen p = new Pen(Color.FromArgb(40, Palette.Ivory))) e.Graphics.DrawLine(p, 0, 0, quick.Width, 0); };
+            quick.Paint += delegate(object o, PaintEventArgs e) { using (Pen p = new Pen(Color.FromArgb(40, Ui.Text))) e.Graphics.DrawLine(p, 0, 0, quick.Width, 0); };
             foreach (string id in ChatT.PresetIds)
             {
                 string pid = id;
-                UiButton b = new UiButton(ChatT.Preset(id, id), UiKind.Chip); b.Font = Ui.Small; b.Height = S(28);
-                b.Click += delegate { ChatGroup g = Current; if (g != null && Chat.Connected) Chat.SendPreset(g.Code, pid); };
+                UiButton b = new UiButton(ChatT.Preset(id, id), UiKind.Chip); b.Font = Ui.Small; b.Height = S(26);
+                b.Click += delegate { ChatGroup g = CurrentGroup; if (g != null && Chat.Connected) Chat.SendPreset(g.Code, pid); };
                 quick.Controls.Add(b); chips.Add(b);
             }
-            empty = new Panel { BackColor = Ui.Bg };
-            empty.Paint += PaintEmpty;
-            btnNew = new UiButton("+  " + ChatT.T("create"), UiKind.Primary);
-            btnNew.Click += delegate { string n = Dlg.Ask(this, ChatT.T("create"), ChatT.T("newName"), ""); if (!string.IsNullOrEmpty(n)) Chat.CreateGroup(n); };
-            btnJoin = new UiButton(ChatT.T("join"), UiKind.Secondary);
-            btnJoin.Click += delegate { string c = Dlg.Ask(this, ChatT.T("join"), ChatT.T("enterCode"), ""); if (!string.IsNullOrEmpty(c)) Chat.RequestJoin(c); };
-            empty.Controls.AddRange(new Control[] { btnNew, btnJoin });
-            Controls.AddRange(new Control[] { bar, groupTabs, viewTabs, msgs, memberList, pill, quick, empty });
+
+            // ---- участники: код группы и «Выйти»
+            memberFoot = new Panel { BackColor = Ui.Panel };
+            memberFoot.Paint += delegate(object o, PaintEventArgs e) { using (Pen p = new Pen(Color.FromArgb(40, Ui.Text))) e.Graphics.DrawLine(p, 0, 0, memberFoot.Width, 0); };
+            btnCopyCode = new UiButton(ChatT.T("copy"), UiKind.Secondary);
+            btnCopyCode.Click += delegate
+            {
+                ChatGroup g = CurrentGroup;
+                if (g != null) { try { Clipboard.SetText(g.Code); OnNotice(ChatT.T("copied") + ": " + g.Code, false); } catch { } }
+            };
+            btnLeave = new UiButton(ChatT.T("leave"), UiKind.Danger);
+            btnLeave.Click += delegate { ChatGroup g = CurrentGroup; if (g != null) Chat.Leave(g.Code); };
+            memberFoot.Controls.AddRange(new Control[] { btnCopyCode, btnLeave });
+
+            // ---- настройки: фото, ник, адрес сервера, переключатели
+            settingsPanel = new Panel { BackColor = Ui.Bg };
+            lblSetupHint = MakeLabel(Ui.Medium, Ui.Accent); lblSetupHint.TextAlign = ContentAlignment.MiddleCenter;
+            avatarBox = new AvatarBox(); avatarBox.Click += delegate { PickAvatar(this); avatarBox.Invalidate(); };
+            lblPick = MakeLabel(Ui.Small, Ui.Dim); lblPick.Text = ChatT.T("pick"); lblPick.TextAlign = ContentAlignment.MiddleCenter;
+            inNick = new UiInput(ChatT.T("nick"), ""); inNick.Box.MaxLength = 24;
+            inServer = new UiInput(ChatT.T("server"), "");
+            tgAuto = new UiToggle(ChatT.T("auto"), false);
+            tgSound = new UiToggle(ChatT.T("sound"), true);
+            btnSave = new UiButton(ChatT.T("save"), UiKind.Primary); btnSave.Click += delegate { SaveSettings(); };
+            btnCancelSettings = new UiButton(ChatT.T("cancel"), UiKind.Secondary); btnCancelSettings.Click += delegate { forceSettings = false; Refresh2(); };
+            settingsPanel.Controls.AddRange(new Control[] { lblSetupHint, avatarBox, lblPick, inNick, inServer, tgAuto, tgSound, btnCancelSettings, btnSave });
+
+            // ---- «+»: новая группа или вступить по коду (прямо в панели, без отдельных окон)
+            addPanel = new Panel { BackColor = Ui.Bg };
+            lblAddHint = MakeLabel(Ui.Small, Ui.Dim); lblAddHint.Text = ChatT.T("noGroupHint"); lblAddHint.TextAlign = ContentAlignment.MiddleCenter; lblAddHint.AutoEllipsis = false;
+            inName = new UiInput(ChatT.T("newName"), ""); inName.Box.MaxLength = 40;
+            inCode = new UiInput(ChatT.T("enterCode"), ""); inCode.Box.MaxLength = 12;
+            btnCreate = new UiButton("+  " + ChatT.T("create"), UiKind.Primary); btnCreate.Click += delegate { DoCreate(); };
+            btnJoin = new UiButton(ChatT.T("join"), UiKind.Secondary); btnJoin.Click += delegate { DoJoin(); };
+            inName.Box.KeyDown += delegate(object o, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; DoCreate(); } };
+            inCode.Box.KeyDown += delegate(object o, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; DoJoin(); } };
+            addPanel.Controls.AddRange(new Control[] { lblAddHint, inName, btnCreate, inCode, btnJoin });
+            addPanel.Paint += PaintAdd;
+
+            Controls.AddRange(new Control[] { bar, groupTabs, viewTabs, msgs, memberList, memberFoot, pill, quick, settingsPanel, addPanel });
         }
 
-        void PaintEmpty(object s, PaintEventArgs e)
+        void PaintAdd(object s, PaintEventArgs e)
         {
             Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            int w = empty.Width; float cx = w / 2f, cy = S(80), r = S(44);
+            float cx = addPanel.Width / 2f, cy = S(46), r = S(28);
             using (GraphicsPath p = new GraphicsPath())
             {
                 Palette.Star8(p, cx, cy, r);
-                using (SolidBrush b = new SolidBrush(Color.FromArgb(28, Palette.Emerald))) g.FillPath(b, p);
-                using (Pen pen = new Pen(Color.FromArgb(150, Palette.Gold), 1.5f)) g.DrawPath(pen, p);
+                using (SolidBrush b = new SolidBrush(Ui.Raised)) g.FillPath(b, p);
+                using (Pen pen = new Pen(Ui.Border, 1.4f)) g.DrawPath(pen, p);
             }
-            TextRenderer.DrawText(g, ChatT.T("noGroup"), Ui.Medium, new Rectangle(S(24), (int)cy + (int)r + S(14), w - S(48), S(44)), Palette.Ivory, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
-            TextRenderer.DrawText(g, ChatT.T("noGroupHint"), Ui.Small, new Rectangle(S(28), (int)cy + (int)r + S(62), w - S(56), S(54)), Ui.Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
         }
 
-        void Toggle() { collapsed = !collapsed; ApplyState(); if (!collapsed) Activate(); }
+        void DoCreate()
+        {
+            string n = inName.Text.Trim();
+            if (n.Length == 0 || !Chat.Connected) return;
+            pendingSelectNew = true; Chat.CreateGroup(n); inName.Text = "";
+        }
+        void DoJoin()
+        {
+            string c = inCode.Text.Trim();
+            if (c.Length == 0 || !Chat.Connected) return;
+            Chat.RequestJoin(c); inCode.Text = "";
+        }
 
-        void OnChanged() { if (IsDisposed) return; Refresh2(); }
+        void OpenSettings()
+        {
+            collapsed = false; forceSettings = true;
+            inNick.Text = Chat.Nick ?? ""; inServer.Text = Chat.Server ?? "";
+            tgAuto.Checked = Store.Get("chatAuto", "0") == "1"; tgSound.Checked = Store.Get("chatSound", "1") != "0";
+            Refresh2(); Activate();
+        }
 
-        // Содержимое и раскладка; нижний край панели остаётся на месте (панель «растёт» вверх)
-        void Refresh2()
+        void SaveSettings()
+        {
+            Store.Settings["chatAuto"] = tgAuto.Checked ? "1" : "0";
+            Store.Settings["chatSound"] = tgSound.Checked ? "1" : "0";
+            Store.Save();
+            Chat.Configure(inServer.Text, inNick.Text);
+            forceSettings = false;
+            Refresh2();
+        }
+
+        void Toggle() { collapsed = !collapsed; Refresh2(); if (!collapsed) Activate(); }
+
+        void OnNotice(string text, bool error) { noticeText = text; noticeError = error; noticeAt = DateTime.Now; UpdatePill(); ApplyState(); }
+
+        void OnChanged()
         {
             if (IsDisposed) return;
-            ChatGroup g = Current;
-            groupIdx = Math.Max(0, Math.Min(groupIdx, Math.Max(0, Chat.Groups.Count - 1)));
-            string[] names = new string[Chat.Groups.Count];
-            for (int i = 0; i < names.Length; i++) names[i] = Chat.Groups[i].Name;
-            groupTabs.Items = names; if (groupTabs.Selected != groupIdx) { int old = groupIdx; groupTabs.Selected = old; }
-            groupTabs.Invalidate();
-            int unreadOthers = 0; foreach (ChatGroup x in Chat.Groups) if (x != g || collapsed) unreadOthers += x.Unread;
-            if (g != null && !collapsed && ContainsFocus) g.Unread = 0;
-            int unread = 0; foreach (ChatGroup x in Chat.Groups) unread += x.Unread;
-            lblTitle.Text = g != null ? g.Name : ChatT.T("menu").TrimEnd('…');
-            lblBadge.Visible = unread > 0 && collapsed; lblBadge.Text = unread > 99 ? "99+" : unread.ToString();
-            if (g != null) { msgs.SetGroup(g); memberList.SetGroup(g); } else { msgs.SetGroup(null); memberList.SetGroup(null); }
-            bool can = Chat.Connected && g != null;
-            foreach (UiButton b in chips) b.Enabled = can;
-            btnNew.Enabled = btnJoin.Enabled = Chat.Connected;
+            int n = Chat.Groups.Count;
+            if (pendingSelectNew && n > lastGroupCount) { groupIdx = n - 1; view = 0; viewTabs.Selected = 0; pendingSelectNew = false; }
+            else if (n > lastGroupCount && groupIdx >= lastGroupCount) groupIdx = n - 1;   // вступили в группу — открываем её
+            lastGroupCount = n;
+            Refresh2();
+        }
+
+        // Событие (ошибка, «ожидание подтверждения») показываем 8 секунд, дальше — состояние соединения
+        void UpdatePill()
+        {
+            if (pill == null || IsDisposed) return;
             Color green = Ui.Online, amber = Color.FromArgb(240, 178, 84), red = Color.FromArgb(240, 110, 90);
-            if (!Chat.Configured) pill.Set(amber, ChatT.T("setup"));
+            bool notice = noticeText != null && (DateTime.Now - noticeAt).TotalSeconds <= 8;
+            if (notice) pill.Set(noticeError ? red : green, noticeText);
+            else if (!Chat.Configured) pill.Set(amber, ChatT.T("setup"));
             else if (Chat.Connected) pill.Set(green, ChatT.T("connected"));
             else if (!string.IsNullOrEmpty(Chat.LastError)) pill.Set(red, ChatT.T("connecting") + " " + Chat.LastError);
             else pill.Set(amber, ChatT.T("connecting"));
+            bool want = !collapsed && Chat.Configured && !forceSettings && (notice || !Chat.Connected);
+            if (pill.Visible != want) ApplyState();
+        }
+
+        void Refresh2()
+        {
+            if (IsDisposed) return;
+            int n = Chat.Groups.Count;
+            groupIdx = Math.Max(0, Math.Min(groupIdx, n));   // n — вкладка «+»
+            string[] names = new string[n + 1];
+            for (int i = 0; i < n; i++) names[i] = Chat.Groups[i].Name;
+            names[n] = "+";
+            groupTabs.Items = names;
+            if (groupTabs.Selected != groupIdx) groupTabs.Selected = groupIdx;
+            groupTabs.Invalidate();
+            ChatGroup g = CurrentGroup;
+            if (g != null && !collapsed && ContainsFocus) g.Unread = 0;
+            int unread = 0; foreach (ChatGroup x in Chat.Groups) unread += x.Unread;
+            lblTitle.Text = (g != null && Chat.Configured && !forceSettings) ? g.Name : ChatT.T("menu").TrimEnd('…');
+            lblBadge.Visible = unread > 0 && collapsed; lblBadge.Text = unread > 99 ? "99+" : unread.ToString();
+            msgs.SetGroup(g); memberList.SetGroup(g);
+            bool can = Chat.Connected && g != null;
+            foreach (UiButton b in chips) b.Enabled = can;
+            btnCreate.Enabled = btnJoin.Enabled = Chat.Connected;
+            btnLeave.Enabled = Chat.Connected;
+            lblSetupHint.Text = Chat.Configured ? "" : ChatT.T("setup");
+            avatarBox.Invalidate();
+            UpdatePill();
             ApplyState();
         }
 
         void ApplyState()
         {
             if (IsDisposed || bar == null) return;
-            ChatGroup g = Current;
-            int W = S(400), barH = S(54);
+            bool cfg = Chat.Configured; int n = Chat.Groups.Count;
+            int W = collapsed ? S(230) : S(340), barH = collapsed ? S(34) : S(40);   // свёрнутая — узкая тонкая полоса
             btnCollapse.Glyph = collapsed ? "" : "";
-            // содержимое развёрнутой панели
-            bool has = g != null;
-            groupTabs.Visible = !collapsed && Chat.Groups.Count > 1;
-            viewTabs.Visible = !collapsed && has;
-            bool chatTab = viewTabs.Selected == 0;
-            msgs.Visible = !collapsed && has && chatTab;
-            memberList.Visible = !collapsed && has && !chatTab;
-            quick.Visible = !collapsed && has && chatTab;
-            empty.Visible = !collapsed && !has;
-            pill.Visible = !collapsed && (!Chat.Connected || !Chat.Configured);
-            int H = collapsed ? barH : S(600);
+            bool showSettings = !collapsed && (!cfg || forceSettings);
+            bool showAdd = !collapsed && cfg && !forceSettings && (n == 0 || groupIdx >= n);
+            bool showGroup = !collapsed && cfg && !forceSettings && n > 0 && groupIdx < n;
+            groupTabs.Visible = !collapsed && cfg && !forceSettings;
+            viewTabs.Visible = showGroup;
+            msgs.Visible = quick.Visible = showGroup && view == 0;
+            memberList.Visible = memberFoot.Visible = showGroup && view == 1;
+            settingsPanel.Visible = showSettings; addPanel.Visible = showAdd;
+            btnCancelSettings.Visible = cfg;
+            bool notice = noticeText != null && (DateTime.Now - noticeAt).TotalSeconds <= 8;
+            pill.Visible = !collapsed && cfg && !forceSettings && (notice || !Chat.Connected);
+            int H = collapsed ? barH : S(470);
             Rectangle anchor = Rectangle.Empty;
             try { if (ChatToast.Anchor != null) anchor = ChatToast.Anchor(); } catch { }
             Rectangle wa = Screen.PrimaryScreen.WorkingArea;
@@ -1637,361 +1718,62 @@ namespace NamazBar
         void LayoutChildren(int W, int H, int barH)
         {
             bar.SetBounds(0, 0, W, barH);
-            btnClose.SetBounds(W - S(44), S(7), S(40), S(40));
-            btnCollapse.SetBounds(W - S(88), S(7), S(40), S(40));
-            btnPop.SetBounds(W - S(132), S(7), S(40), S(40));
-            lblBadge.SetBounds(W - S(190), S(15), S(34), S(24));
-            lblTitle.SetBounds(S(16), S(10), W - S(16) - S(140) - (lblBadge.Visible ? S(50) : 0), S(34));
+            int bs = barH - S(8), by0 = S(4);   // кнопки в шапке подстраиваются под её высоту
+            btnClose.SetBounds(W - bs - S(6), by0, bs, bs);
+            btnCollapse.SetBounds(btnClose.Left - bs - S(2), by0, bs, bs);
+            btnGear.Visible = !collapsed;
+            btnGear.SetBounds(btnCollapse.Left - bs - S(2), by0, bs, bs);
+            int rightEdge = collapsed ? btnCollapse.Left : btnGear.Left;
+            lblBadge.SetBounds(rightEdge - S(40), (barH - S(20)) / 2, S(34), S(20));
+            lblTitle.SetBounds(S(14), 0, rightEdge - S(14) - (lblBadge.Visible ? S(44) : S(4)), barH);
             int y = barH;
-            if (groupTabs.Visible) { groupTabs.SetBounds(0, y, W, S(40)); y += S(40); }
-            if (viewTabs.Visible) { viewTabs.SetBounds(0, y, W, S(40)); y += S(40); }
-            if (pill.Visible) { pill.SetBounds(S(14), y + S(8), W - S(28), S(24)); y += S(40); }
+            if (groupTabs.Visible) { groupTabs.SetBounds(0, y, W, S(34)); y += S(34); }
+            if (viewTabs.Visible) { viewTabs.SetBounds(0, y, W, S(34)); y += S(34); }
+            if (pill.Visible) { pill.SetBounds(S(12), y + S(6), W - S(24), S(22)); y += S(34); }
+            int rest = Math.Max(S(40), H - y);
             // быстрые ответы — снизу
-            int qpad = S(12), x = qpad, cy = S(10), rowH = S(28), gap = S(6);
+            int qpad = S(10), x = qpad, cy = S(8), rowH = S(26), gap = S(6);
             foreach (UiButton b in chips)
             {
                 int w = Math.Min(W - 2 * qpad, b.PreferredWidth());
                 if (x + w > W - qpad && x > qpad) { x = qpad; cy += rowH + gap; }
                 b.SetBounds(x, cy, w, rowH); x += w + gap;
             }
-            int qh = cy + rowH + S(10);
+            int qh = cy + rowH + S(8);
             quick.SetBounds(0, H - qh, W, qh);
-            int bottomLimit = quick.Visible ? H - qh : H;
-            msgs.SetBounds(0, y, W, Math.Max(S(40), bottomLimit - y));
-            memberList.SetBounds(0, y, W, Math.Max(S(40), H - y));
-            empty.SetBounds(0, y, W, Math.Max(S(40), H - y));
-            btnNew.SetBounds(S(24), empty.Height - S(110), W - S(48), S(42));
-            btnJoin.SetBounds(S(24), empty.Height - S(60), W - S(48), S(42));
+            msgs.SetBounds(0, y, W, Math.Max(S(40), (quick.Visible ? H - qh : H) - y));
+            int fh = S(54);
+            memberFoot.SetBounds(0, H - fh, W, fh);
+            btnCopyCode.SetBounds(S(10), S(9), (W - S(30)) / 2, S(36));
+            btnLeave.SetBounds(S(20) + (W - S(30)) / 2, S(9), (W - S(30)) / 2, S(36));
+            memberList.SetBounds(0, y, W, Math.Max(S(40), H - fh - y));
+            // настройки
+            settingsPanel.SetBounds(0, y, W, rest);
+            int pw = W - S(40), px = S(20), py = S(6);
+            lblSetupHint.SetBounds(px, py, pw, lblSetupHint.Text.Length > 0 ? S(24) : 0);
+            py += lblSetupHint.Text.Length > 0 ? S(28) : S(4);
+            avatarBox.SetBounds((W - S(68)) / 2, py, S(68), S(68)); py += S(70);
+            lblPick.SetBounds(px, py, pw, S(16)); py += S(22);
+            inNick.SetBounds(px, py, pw, S(48)); py += S(54);
+            inServer.SetBounds(px, py, pw, S(48)); py += S(56);
+            tgAuto.SetBounds(px, py, pw, S(34)); py += S(38);
+            tgSound.SetBounds(px, py, pw, S(24));
+            int by = rest - S(48);
+            btnSave.SetBounds(W - S(20) - S(110), by, S(110), S(36));
+            btnCancelSettings.SetBounds(btnSave.Left - S(8) - S(96), by, S(96), S(36));
+            // «+»
+            addPanel.SetBounds(0, y, W, rest);
+            lblAddHint.SetBounds(S(24), S(66), W - S(48), S(34));
+            inName.SetBounds(px, S(108), pw, S(48));
+            btnCreate.SetBounds(px, S(162), pw, S(38));
+            inCode.SetBounds(px, S(218), pw, S(48));
+            btnJoin.SetBounds(px, S(272), pw, S(38));
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            using (Pen p = new Pen(Color.FromArgb(160, Palette.Gold), 2f)) e.Graphics.DrawRectangle(p, 1, 1, Width - 3, Height - 3);
+            using (Pen p = new Pen(Ui.Border, 1f)) e.Graphics.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
             base.OnPaint(e);
-        }
-    }
-
-    // ───────────────────────── Окно чата (в духе Telegram / WhatsApp) ─────────────────────────
-    class DaySep { public string Text; }
-
-    class ChatForm : Form
-    {
-        static ChatForm instance;
-        public static bool IsOpen { get { return instance != null && !instance.IsDisposed; } }
-        public static void CloseIfOpen() { if (IsOpen) instance.Close(); }
-        public static void ShowSingle()
-        {
-            if (IsOpen) { if (instance.WindowState == FormWindowState.Minimized) instance.WindowState = FormWindowState.Normal; instance.Activate(); return; }
-            instance = new ChatForm();
-            instance.Show();
-        }
-
-        public static void PickAvatar(IWin32Window owner)
-        {
-            using (OpenFileDialog d = new OpenFileDialog())
-            {
-                d.Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif|*.*|*.*";
-                d.Title = ChatT.T("pick");
-                if (d.ShowDialog(owner) != DialogResult.OK) return;
-                try { Chat.SetAvatar(Avatars.FromFile(d.FileName)); }
-                catch (Exception ex) { Store.Log("avatar: " + ex.Message); MessageBox.Show(owner, ChatT.T("bad"), ChatT.T("title")); }
-            }
-        }
-
-        Panel side, profile, chatHead, main, quick, empty, members;
-        AvatarBox avatarBox;
-        Label lblNick, lblName, lblSub;
-        StatusPill pill;
-        UiIconButton btnGear, btnMore, btnCopy;
-        UiButton btnNew, btnJoin;
-        BufListBox lstGroups;
-        MessageView lstMsg;
-        readonly List<UiButton> chips = new List<UiButton>();
-        string noticeText; DateTime noticeAt = DateTime.MinValue; bool noticeError;
-        System.Windows.Forms.Timer statusTimer;
-        bool updating;
-        ContextMenuStrip moreMenu;
-
-        int S(float v) { return Ui.S(v); }
-
-        ChatForm()
-        {
-            AutoScaleMode = AutoScaleMode.None;
-            Text = ChatT.T("title");
-            StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(S(980), S(660)); MinimumSize = new Size(S(820), S(520));
-            BackColor = Ui.Bg; ForeColor = Ui.Text; Font = Ui.Body;
-            DoubleBuffered = true;
-            try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-            Build();
-            Chat.Changed += OnChanged; Chat.Notice += OnNotice;
-            statusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-            statusTimer.Tick += delegate { UpdatePill(); };
-            statusTimer.Start();
-            FormClosed += delegate { statusTimer.Stop(); Chat.Changed -= OnChanged; Chat.Notice -= OnNotice; Chat.Active = null; };
-            Resize += delegate { Relayout(); };
-            Load += delegate
-            {
-                Relayout(); OnChanged();
-                if (!Chat.Configured) BeginInvoke((MethodInvoker)delegate { OpenSettings(); });   // первый запуск: сразу настройки
-            };
-        }
-
-        Label MakeLabel(Font f, Color c) { return new Label { Font = f, ForeColor = c, AutoSize = false, BackColor = Color.Transparent, UseMnemonic = false, AutoEllipsis = true }; }
-
-        void Build()
-        {
-            // ---- левая колонка: профиль, список чатов, кнопки
-            side = new Panel { BackColor = Ui.Panel };
-            profile = new Panel { BackColor = Ui.Panel };
-            avatarBox = new AvatarBox(); avatarBox.Click += delegate { OpenSettings(); };
-            lblNick = MakeLabel(Ui.Medium, Palette.Ivory);
-            pill = new StatusPill();
-            btnGear = new UiIconButton(""); btnGear.Click += delegate { OpenSettings(); };
-            profile.Controls.AddRange(new Control[] { avatarBox, lblNick, pill, btnGear });
-            profile.Paint += delegate(object o, PaintEventArgs e) { using (Pen p = new Pen(Color.FromArgb(40, Palette.Ivory))) e.Graphics.DrawLine(p, 0, profile.Height - 1, profile.Width, profile.Height - 1); };
-            lstGroups = new BufListBox { DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = S(72), BorderStyle = BorderStyle.None, BackColor = Ui.Panel, IntegralHeight = false };
-            lstGroups.DrawItem += DrawGroup;
-            lstGroups.SelectedIndexChanged += delegate { SelectGroup(); };
-            btnNew = new UiButton("+  " + ChatT.T("create"), UiKind.Primary);
-            btnNew.Click += delegate { string n = Dlg.Ask(this, ChatT.T("create"), ChatT.T("newName"), ""); if (!string.IsNullOrEmpty(n)) Chat.CreateGroup(n); };
-            btnJoin = new UiButton(ChatT.T("join"), UiKind.Secondary);
-            btnJoin.Click += delegate { string c = Dlg.Ask(this, ChatT.T("join"), ChatT.T("enterCode"), ""); if (!string.IsNullOrEmpty(c)) Chat.RequestJoin(c); };
-            side.Controls.AddRange(new Control[] { profile, lstGroups, btnNew, btnJoin });
-
-            // ---- правая часть: шапка чата, сообщения, быстрые ответы
-            main = new Panel { BackColor = Ui.Bg };
-            chatHead = new Panel { BackColor = Ui.Panel };
-            chatHead.Paint += PaintHead;
-            lblName = MakeLabel(Ui.Big, Palette.Ivory);
-            lblSub = MakeLabel(Ui.Small, Ui.Dim);
-            members = new Panel { BackColor = Ui.Panel }; members.Paint += PaintMemberStack;
-            btnCopy = new UiIconButton(""); btnCopy.Click += delegate { CopyCode(); };
-            btnMore = new UiIconButton("");
-            moreMenu = new ContextMenuStrip(); MenuUi.Style(moreMenu);
-            btnMore.Click += delegate { BuildMoreMenu(); moreMenu.Show(btnMore, new Point(btnMore.Width, btnMore.Height), ToolStripDropDownDirection.BelowLeft); };
-            chatHead.Controls.AddRange(new Control[] { lblName, lblSub, members, btnCopy, btnMore });
-            lstMsg = new MessageView();
-            empty = new Panel { BackColor = Ui.Bg }; empty.Paint += PaintEmpty;
-            quick = new Panel { BackColor = Ui.Panel };
-            quick.Paint += delegate(object o, PaintEventArgs e) { using (Pen p = new Pen(Color.FromArgb(40, Palette.Ivory))) e.Graphics.DrawLine(p, 0, 0, quick.Width, 0); };
-            foreach (string id in ChatT.PresetIds)
-            {
-                string pid = id;
-                UiButton b = new UiButton(ChatT.Preset(id, id), UiKind.Chip);
-                b.Click += delegate { ChatGroup g = Current; if (g != null && Chat.Connected) Chat.SendPreset(g.Code, pid); };
-                quick.Controls.Add(b); chips.Add(b);
-            }
-            main.Controls.AddRange(new Control[] { chatHead, lstMsg, empty, quick });
-            Controls.Add(main); Controls.Add(side);
-        }
-
-        void OpenSettings()
-        {
-            using (ChatSettings f = new ChatSettings()) f.ShowDialog(this);
-            RefreshProfile();
-            OnChanged();
-        }
-        void RefreshProfile() { lblNick.Text = string.IsNullOrEmpty(Chat.Nick) ? ChatT.T("nick") : Chat.Nick; avatarBox.Invalidate(); }
-
-        void CopyCode() { ChatGroup g = Current; if (g != null) { try { Clipboard.SetText(g.Code); noticeText = ChatT.T("copied"); noticeError = false; noticeAt = DateTime.Now; UpdatePill(); } catch { } } }
-
-        void BuildMoreMenu()
-        {
-            moreMenu.Items.Clear();
-            ChatGroup g = Current; if (g == null) return;
-            moreMenu.Items.Add(MenuUi.Item(ChatT.T("copy"), "", delegate { CopyCode(); }));
-            moreMenu.Items.Add(new ToolStripSeparator());
-            ToolStripMenuItem leave = MenuUi.Item(ChatT.T("leave"), "", delegate { Chat.Leave(g.Code); });
-            leave.Enabled = Chat.Connected;
-            moreMenu.Items.Add(leave);
-        }
-
-        // ---- раскладка вручную
-        void Relayout()
-        {
-            if (side == null || ClientSize.Width < 100) return;
-            int W = ClientSize.Width, H = ClientSize.Height, sw = Math.Max(S(300), Math.Min(S(360), W / 3));
-            side.SetBounds(0, 0, sw, H);
-            int ph = S(84);
-            profile.SetBounds(0, 0, sw, ph);
-            avatarBox.SetBounds(S(10), S(14), S(56), S(56));
-            btnGear.SetBounds(sw - S(52), S(22), S(40), S(40));
-            lblNick.SetBounds(S(74), S(14), sw - S(74) - S(60), S(24));
-            pill.SetBounds(S(74), S(42), sw - S(74) - S(60), S(24));
-            int pad = S(12), bw = sw - 2 * pad, yb = H - S(14);
-            btnJoin.SetBounds(pad, yb - S(40), bw, S(40)); yb -= S(40) + S(8);
-            btnNew.SetBounds(pad, yb - S(42), bw, S(42)); yb -= S(42) + S(10);
-            lstGroups.SetBounds(0, ph, sw, Math.Max(S(40), yb - ph));
-
-            main.SetBounds(sw, 0, W - sw, H);
-            int mw = main.Width, mh = main.Height;
-            int qpad = S(16), x = qpad, y = S(12), rowH = S(34), gap = S(8);
-            foreach (UiButton b in chips)
-            {
-                int w = b.PreferredWidth();
-                if (x + w > mw - qpad && x > qpad) { x = qpad; y += rowH + gap; }
-                b.SetBounds(x, y, w, rowH); x += w + gap;
-            }
-            int qh = y + rowH + S(14);
-            quick.SetBounds(0, mh - qh, mw, qh);
-            int hh = S(68);
-            chatHead.SetBounds(0, 0, mw, hh);
-            btnMore.SetBounds(mw - S(52), S(14), S(40), S(40));
-            btnCopy.SetBounds(mw - S(96), S(14), S(40), S(40));
-            members.SetBounds(Math.Max(S(200), mw - S(104) - S(170)), S(14), S(166), S(40));
-            lblName.SetBounds(S(76), S(10), Math.Max(S(80), members.Left - S(76) - S(10)), S(28));
-            lblSub.SetBounds(S(76), S(38), Math.Max(S(80), members.Left - S(76) - S(10)), S(20));
-            lstMsg.SetBounds(0, hh, mw, Math.Max(S(40), mh - qh - hh));
-            empty.SetBounds(0, 0, mw, mh - qh);
-            chatHead.Invalidate(); members.Invalidate(); empty.Invalidate();
-        }
-
-        ChatGroup Current { get { return lstGroups.SelectedIndex >= 0 && lstGroups.SelectedIndex < Chat.Groups.Count ? Chat.Groups[lstGroups.SelectedIndex] : null; } }
-
-        void OnChanged()
-        {
-            if (IsDisposed || updating) return;
-            updating = true;
-            try
-            {
-                ChatGroup keep = Current;
-                lstGroups.BeginUpdate();
-                lstGroups.Items.Clear();
-                foreach (ChatGroup g in Chat.Groups) lstGroups.Items.Add(g.Name);
-                if (keep != null && Chat.Groups.Contains(keep)) lstGroups.SelectedIndex = Chat.Groups.IndexOf(keep);
-                else if (Chat.Groups.Count > 0) lstGroups.SelectedIndex = 0;
-                lstGroups.EndUpdate();
-                SelectGroup();
-                RefreshProfile();
-                UpdatePill();
-                bool can = Chat.Connected && Current != null;
-                foreach (UiButton b in chips) b.Enabled = can;
-                btnNew.Enabled = btnJoin.Enabled = Chat.Connected;
-                lstGroups.Invalidate();
-            }
-            finally { updating = false; }
-        }
-
-        void OnNotice(string text, bool error) { noticeText = text; noticeError = error; noticeAt = DateTime.Now; UpdatePill(); }
-
-        // Событие (ошибка, «ожидание подтверждения») показываем 8 секунд, дальше — состояние соединения
-        void UpdatePill()
-        {
-            if (pill == null || IsDisposed) return;
-            Color green = Ui.Online, amber = Color.FromArgb(240, 178, 84), red = Color.FromArgb(240, 110, 90);
-            if (!Chat.Configured) { pill.Set(amber, ChatT.T("setup")); return; }
-            if (noticeText != null && (DateTime.Now - noticeAt).TotalSeconds <= 8) { pill.Set(noticeError ? red : green, noticeText); return; }
-            if (Chat.Connected) pill.Set(green, ChatT.T("connected"));
-            else if (!string.IsNullOrEmpty(Chat.LastError)) pill.Set(red, ChatT.T("connecting") + " " + Chat.LastError);
-            else pill.Set(amber, ChatT.T("connecting"));
-        }
-
-        void SelectGroup()
-        {
-            ChatGroup g = Current;
-            Chat.Active = g;
-            if (g != null) g.Unread = 0;
-            lstGroups.Invalidate();
-            bool has = g != null;
-            chatHead.Visible = lstMsg.Visible = quick.Visible = has;
-            empty.Visible = !has;
-            if (has)
-            {
-                lblName.Text = g.Name;
-                lblSub.Text = string.Format(ChatT.T("code"), g.Code) + "   ·   " + g.Members.Count + " / " + string.Format(ChatT.T("online"), g.OnlineCount);
-                members.Invalidate(); chatHead.Invalidate();
-            }
-            else { lstMsg.SetGroup(null); empty.Invalidate(); return; }
-            lstMsg.SetGroup(g);
-        }
-
-        // ---- список чатов: аватар, название, последнее сообщение, время, непрочитанные
-        void DrawGroup(object s, DrawItemEventArgs e)
-        {
-            Graphics gr = e.Graphics; gr.SmoothingMode = SmoothingMode.AntiAlias;
-            gr.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            using (SolidBrush b = new SolidBrush(Ui.Panel)) gr.FillRectangle(b, e.Bounds);
-            if (e.Index < 0 || e.Index >= Chat.Groups.Count) return;
-            ChatGroup g = Chat.Groups[e.Index];
-            bool sel = (e.State & DrawItemState.Selected) != 0;
-            Rectangle row = new Rectangle(e.Bounds.X + S(6), e.Bounds.Y + S(2), e.Bounds.Width - S(12), e.Bounds.Height - S(4));
-            if (sel) Ui.FillRound(gr, row, S(12), View.Mix(Ui.Panel, Palette.Emerald, 0.95));
-            int av = S(52);
-            Rectangle ar = new Rectangle(row.X + S(10), row.Y + (row.Height - av) / 2, av, av);
-            Avatars.Draw(gr, ar, g.Code, g.Name, null);
-            int tx = ar.Right + S(12), right = row.Right - S(12);
-            ChatMsg last = g.Messages.Count > 0 ? g.Messages[g.Messages.Count - 1] : null;
-            string time = last == null ? "" : (last.Time.Date == DateTime.Today ? last.Time.ToString("HH:mm") : last.Time.ToString("dd.MM"));
-            int tw = time.Length == 0 ? 0 : TextRenderer.MeasureText(gr, time, Ui.Small, new Size(200, 30), TextFormatFlags.NoPadding).Width;
-            TextRenderer.DrawText(gr, g.Name, Ui.Medium, new Rectangle(tx, row.Y + S(10), right - tx - tw - S(8), S(22)), Palette.Ivory, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-            if (tw > 0) TextRenderer.DrawText(gr, time, Ui.Small, new Point(right - tw, row.Y + S(13)), g.Unread > 0 ? Palette.Gold : Ui.Dim);
-            string prev = last == null ? string.Format(ChatT.T("online"), g.OnlineCount) + " / " + g.Members.Count
-                                       : (last.From == Chat.UserId ? ChatT.T("you") : last.Nick) + ": " + last.Display;
-            int prevRight = g.Unread > 0 ? right - S(34) : right;
-            TextRenderer.DrawText(gr, prev, Ui.Body, new Rectangle(tx, row.Y + S(36), prevRight - tx, S(22)), Ui.Dim, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-            if (g.Unread > 0)
-            {
-                Rectangle bd = new Rectangle(right - S(26), row.Y + S(36), S(26), S(22));
-                Ui.FillRound(gr, bd, S(11), Palette.Gold);
-                TextRenderer.DrawText(gr, g.Unread > 99 ? "99+" : g.Unread.ToString(), Ui.Small, bd, Palette.Ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-            }
-        }
-
-        // ---- шапка чата: аватар группы слева
-        void PaintHead(object s, PaintEventArgs e)
-        {
-            Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (Pen p = new Pen(Color.FromArgb(40, Palette.Ivory))) g.DrawLine(p, 0, chatHead.Height - 1, chatHead.Width, chatHead.Height - 1);
-            ChatGroup grp = Current; if (grp == null) return;
-            Avatars.Draw(g, new Rectangle(S(16), S(10), S(48), S(48)), grp.Code, grp.Name, null);
-        }
-
-        // ---- участники: стопка круглых аватаров с точкой онлайн, как в Telegram
-        void PaintMemberStack(object s, PaintEventArgs e)
-        {
-            Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            ChatGroup grp = Current; if (grp == null) return;
-            List<ChatMember> sorted = new List<ChatMember>(grp.Members);
-            sorted.Sort(delegate(ChatMember a, ChatMember b) { return a.Online != b.Online ? (a.Online ? -1 : 1) : string.Compare(a.Nick, b.Nick, StringComparison.CurrentCultureIgnoreCase); });
-            int av = S(34), step = S(24), n = Math.Min(sorted.Count, 5);
-            int total = n == 0 ? 0 : av + (n - 1) * step;
-            int x = members.Width - total, y = (members.Height - av) / 2;
-            for (int i = n - 1; i >= 0; i--)
-            {
-                ChatMember m = sorted[i];
-                Rectangle r = new Rectangle(x + i * step, y, av, av);
-                using (SolidBrush ring = new SolidBrush(Ui.Panel)) g.FillEllipse(ring, r.X - 2, r.Y - 2, av + 4, av + 4);
-                Avatars.Draw(g, r, m.UserId, m.Nick, m.Avatar);
-                if (!m.Online) using (SolidBrush dim = new SolidBrush(Color.FromArgb(140, Ui.Panel))) g.FillEllipse(dim, r);
-                int d = S(10);
-                Rectangle dr = new Rectangle(r.Right - d, r.Bottom - d, d, d);
-                using (SolidBrush rg = new SolidBrush(Ui.Panel)) g.FillEllipse(rg, dr.X - 2, dr.Y - 2, d + 4, d + 4);
-                using (SolidBrush dot = new SolidBrush(m.Online ? Ui.Online : Color.FromArgb(120, 124, 130))) g.FillEllipse(dot, dr);
-            }
-            if (sorted.Count > n)
-            {
-                string more = "+" + (sorted.Count - n);
-                TextRenderer.DrawText(g, more, Ui.Small, new Rectangle(0, 0, x - S(6), members.Height), Ui.Dim, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-            }
-        }
-
-        // ---- пустое состояние: орнамент и подсказка
-        void PaintEmpty(object s, PaintEventArgs e)
-        {
-            Graphics g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            int w = empty.Width, h = empty.Height;
-            float cx = w / 2f, cy = h / 2f - S(40), r = S(60);
-            using (GraphicsPath p = new GraphicsPath())
-            {
-                Palette.Star8(p, cx, cy, r);
-                using (SolidBrush b = new SolidBrush(Color.FromArgb(28, Palette.Emerald))) g.FillPath(b, p);
-                using (Pen pen = new Pen(Color.FromArgb(150, Palette.Gold), 1.6f)) g.DrawPath(pen, p);
-            }
-            using (Pen ring = new Pen(Color.FromArgb(70, Palette.Gold), 1f)) g.DrawEllipse(ring, cx - r * 0.8f, cy - r * 0.8f, r * 1.6f, r * 1.6f);
-            TextRenderer.DrawText(g, ChatT.T("noGroup"), Ui.Big, new Rectangle(S(40), (int)cy + (int)r + S(24), w - S(80), S(30)), Palette.Ivory, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
-            TextRenderer.DrawText(g, ChatT.T("noGroupHint"), Ui.Body, new Rectangle(S(60), (int)cy + (int)r + S(62), w - S(120), S(50)), Ui.Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak);
         }
     }
 }
