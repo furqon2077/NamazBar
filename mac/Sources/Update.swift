@@ -7,7 +7,6 @@ enum Updater {
     static var pageURL: URL?, assetURL: URL?
     static var available = false, checking = false
     static var onChange: () -> Void = {}
-    static var timer: Timer?
 
     static var current: String {
         let v = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
@@ -47,18 +46,7 @@ enum Updater {
         return false
     }
 
-    /// Тихая проверка при запуске (через 20 секунд); на GitHub ходим не чаще раза в 12 часов, вручную — из меню «Версия»
-    static func start() {
-        timer = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { _ in
-            tick()
-            timer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in tick() }
-        }
-    }
-    static func tick() {
-        let last = UserDefaults.standard.double(forKey: "updLast")
-        if Date().timeIntervalSince1970 - last >= 12 * 3600 { check(manual: false) }   // не чаще двух раз в сутки
-    }
-
+    /// Обновления только вручную (меню «Версия» → «Проверить обновления»): приложение само ничего не запрашивает
     static func check(manual: Bool) {
         if checking { return }
         checking = true; onChange()

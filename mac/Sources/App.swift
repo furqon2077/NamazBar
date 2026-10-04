@@ -54,7 +54,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         ChatHooks.install()
-        Updater.start()
         ChatHub.shared.prayerStarts = { [weak self] in   // чат стирает историю через 20 минут после каждого намаза (кроме восхода)
             guard let self = self, self.today.count == 6, self.yesterday.count == 6 else { return [] }
             return [0, 2, 3, 4, 5].flatMap { [self.yesterday[$0], self.today[$0]] }

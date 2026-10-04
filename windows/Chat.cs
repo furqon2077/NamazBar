@@ -950,13 +950,22 @@ namespace NamazBar
         public ChatRowItem(ChatMember m, string head, float k)
         {
             this.member = m; this.head = head; this.k = k;
-            AutoSize = false; Padding = Padding.Empty;
+            AutoSize = true; Padding = Padding.Empty;
             Size = new Size((int)(270 * k), (int)((head != null ? 30 : 34) * k));
             if (fHead == null) fHead = Fonts.Get("NB Sans Bold", 9.5f, "Segoe UI", FontStyle.Bold);
             if (fNick == null) fNick = Fonts.Get("NB Sans", 10.5f, "Segoe UI", FontStyle.Regular);
         }
 
-        public override Size GetPreferredSize(Size constrainingSize) { return Size; }
+        // Ширина по тексту (длинный ник или название группы расширяет меню), но не больше 380 px: дальше — многоточие
+        public override Size GetPreferredSize(Size constrainingSize)
+        {
+            TextFormatFlags mf = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+            int textW, extra;
+            if (head != null) { textW = TextRenderer.MeasureText(head, fHead, new Size(3000, 100), mf).Width; extra = (int)(28 * k); }
+            else { textW = TextRenderer.MeasureText(member.Nick ?? "", fNick, new Size(3000, 100), mf).Width; extra = (int)((14 + 24 + 10 + 18 + 10 + 14) * k); }
+            int w = Math.Max((int)(270 * k), Math.Min(textW + extra, (int)(380 * k)));
+            return new Size(w, Size.Height);
+        }
 
         protected override void OnPaint(PaintEventArgs e)
         {

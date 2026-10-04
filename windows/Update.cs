@@ -22,7 +22,6 @@ namespace NamazBar
         public static long AssetSize;
         public static bool Available, Checking;
         static SynchronizationContext sync;
-        static System.Windows.Forms.Timer timer;
 
         static readonly Dictionary<string, string[]> t = new Dictionary<string, string[]>
         {
@@ -54,19 +53,10 @@ namespace NamazBar
         static void Fire() { Action a = Changed; if (a != null) a(); }
         static void Post(Action a) { sync.Post(delegate { try { a(); } catch (Exception ex) { Store.Log("update: " + ex); } }, null); }
 
-        // Тихая проверка при запуске (через 20 секунд) и затем не чаще раза в 12 часов; вручную - из меню «Версия»
+        // Обновления только вручную (меню «Версия» → «Проверить обновления»): программа сама ничего не запрашивает
         public static void Start()
         {
             sync = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
-            timer = new System.Windows.Forms.Timer { Interval = 20000 };
-            timer.Tick += delegate
-            {
-                timer.Interval = 3600000;
-                long last; long.TryParse(Store.Get("updLast", "0"), out last);
-                bool due = (DateTime.UtcNow - new DateTime(last, DateTimeKind.Utc)).TotalHours >= 12;   // не чаще двух раз в сутки
-                if (due) Check(false);
-            };
-            timer.Start();
         }
 
         public static void Check(bool manual)
