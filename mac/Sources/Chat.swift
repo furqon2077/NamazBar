@@ -193,9 +193,10 @@ final class ChatHub: ObservableObject {
             DispatchQueue.main.async {
                 guard let self = self, gen == self.generation else { return }
                 switch result {
-                case .failure:
+                case .failure(let err):
                     self.connected = false
-                    self.scheduleReconnect(gen)
+                    let code = (t.response as? HTTPURLResponse)?.statusCode
+                    self.scheduleReconnect(gen, why: Self.friendly(err, code))
                 case .success(let msg):
                     var text: String?
                     switch msg {
@@ -212,10 +213,34 @@ final class ChatHub: ObservableObject {
     }
 
     // бесплатные хостинги «засыпают» и просыпаются до минуты — экспоненциальная пауза до 30 с
-    private func scheduleReconnect(_ gen: Int) {
+    /// Причина, понятная пользователю (что проверить), вместо «Подключение…» без конца
+    static func friendly(_ err: Error, _ http: Int?) -> String {
+        if let c = http {
+            switch c {
+            case 404: return "nothing answers at this address (404) - copy the exact URL from your hosting dashboard"
+            case 400: return "the server answered but not at this path (400) - the address must end with /ws"
+            case 401, 403: return "access denied (\(c))"
+            case 502, 503, 504: return "the server is starting up (free hosting sleeps) - retrying"
+            default: return "server answered HTTP \(c)"
+            }
+        }
+        let ns = err as NSError
+        if ns.domain == NSURLErrorDomain {
+            switch ns.code {
+            case NSURLErrorTimedOut: return "no answer yet - free hosting can need up to a minute to wake up, retrying"
+            case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed: return "address not found (DNS) - check the server address"
+            case NSURLErrorNotConnectedToInternet: return "no internet connection"
+            case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted: return "secure connection failed (TLS)"
+            default: break
+            }
+        }
+        return ns.localizedDescription
+    }
+
+    private func scheduleReconnect(_ gen: Int, why: String) {
         let delay = backoff
         backoff = min(backoff * 2, 30)
-        setStatus(ChatT.T("connecting"), false, notify: false)
+        setStatus(ChatT.T("connecting") + " " + why, true, notify: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self = self, gen == self.generation else { return }
             self.connect()
