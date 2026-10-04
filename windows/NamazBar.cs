@@ -1587,6 +1587,8 @@ namespace NamazBar
             tip = new ToolTip(); tip.InitialDelay = 400; tip.AutoPopDelay = 30000;
             BuildMenu();
             ChatHooks.Init(delegate { return WidgetScreenRect(); });
+            Updater.Changed += delegate { if (menu == null || !menu.Visible) BuildMenu(); };
+            Updater.Start();
             Chat.PrayerStarts = delegate   // чат стирает историю через 20 минут после каждого намаза (кроме восхода)
             {
                 List<DateTime> l = new List<DateTime>();
@@ -2410,7 +2412,14 @@ namespace NamazBar
             menu.Items.Add(sys);
 
             menu.Items.Add(new ToolStripSeparator());
-            ToolStripMenuItem ver = MenuUi.Sub("NamazBar " + Build.Version, null); ver.Enabled = false;
+            // Версия и обновления: проверить, что нового, обновить
+            ToolStripMenuItem ver = MenuUi.Sub(string.Format(Updater.T("updVersion"), Build.Version) + (Updater.Available ? "   \u2022 " + Updater.LatestTag : ""), "\uE946");
+            if (Updater.Available) ver.DropDownItems.Add(MenuUi.Item(string.Format(Updater.T("updAvail"), Updater.LatestTag), "\uE896", delegate { UpdateForm.ShowFor(); }));
+            ver.DropDownItems.Add(MenuUi.Item(Updater.Checking ? Updater.T("updChecking") : Updater.T("updCheck"), "\uE72C", delegate { Updater.Check(true); }));
+            ToolStripMenuItem uauto = MenuUi.Sub(Updater.T("updAuto"), null);
+            uauto.Checked = Updater.AutoOn;
+            uauto.Click += delegate { Store.Settings["updAuto"] = Updater.AutoOn ? "0" : "1"; Store.Save(); uauto.Checked = Updater.AutoOn; };
+            ver.DropDownItems.Add(uauto);
             menu.Items.Add(ver);
             menu.Items.Add(MenuUi.Item(Lang.T("exit"), "\uE7E8", delegate { Application.Exit(); }));
         }

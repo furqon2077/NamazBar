@@ -33,6 +33,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5   # нужен RELEASE_NOTES.md
       - uses: actions/download-artifact@v5
         with:
           name: NamazBar-windows
@@ -56,5 +57,7 @@ jobs:
             echo "Release $TAG exists - replacing its files"
             gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "NamazBar $VER" --generate-notes
+            # RELEASE_NOTES.md (разделы ## ru / ## en) показывается в окне обновления программы; нет файла — заметки GitHub
+            if [[ -s RELEASE_NOTES.md ]]; then NOTES=(--notes-file RELEASE_NOTES.md); else NOTES=(--generate-notes); fi
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "NamazBar $VER" "${NOTES[@]}"
           fi
