@@ -152,14 +152,16 @@ struct BreakView: View {
                     }
                     .frame(maxWidth: 900)
                     Spacer()
-                    // последнее сообщение из группового чата — видно и во время перерыва
-                    if let line = ChatHub.shared.recentLine() {
+                    // последнее сообщение из группового чата — видно и во время перерыва (если групп нет; иначе есть карточка справа вверху)
+                    if ChatHub.shared.groups.isEmpty, let line = ChatHub.shared.recentLine() {
                         Text(line).font(Font.ns(Palette.sans(15))).foregroundColor(.pGold).lineLimit(2).frame(maxWidth: 800)
                     }
                     holdButton.padding(.bottom, 50)
                 }
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
+                // чат на экране перерыва: справа вверху, где виднее всего — позвать на намаз одним нажатием
+                BreakChatCard().padding(28).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
     }
@@ -221,5 +223,77 @@ enum BreakScreen {
         timer?.invalidate(); timer = nil
         windows.forEach { $0.orderOut(nil) }
         windows.removeAll()
+    }
+}
+
+
+// ───────── Чат на экране перерыва ─────────
+struct BreakChatCard: View {
+    @ObservedObject var hub = ChatHub.shared
+    @State private var gi = 0
+    @State private var flash: String?
+    @State private var flashErr = false
+
+    var body: some View {
+        if hub.groups.isEmpty || hub.nick.isEmpty || hub.server.isEmpty { EmptyView() } else { card }
+    }
+
+    func send(_ id: String) {
+        let g = hub.groups[min(gi, hub.groups.count - 1)]
+        if hub.connected { hub.sendPreset(g.code, id); flash = "✓"; flashErr = false }
+        else { flash = ChatT.T("notConn"); flashErr = true }
+        let mark = flash
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { if flash == mark { flash = nil } }
+    }
+
+    var card: some View {
+        let g = hub.groups[min(gi, hub.groups.count - 1)]
+        let members = g.members.sorted { $0.online && !$1.online }
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("\(g.name) · \(g.onlineCount)/\(g.members.count)")
+                    .font(Font.ns(Palette.sans(13, weight: .bold))).foregroundColor(.pGold).lineLimit(1)
+                if hub.groups.count > 1 { Image(systemName: "chevron.down").font(.system(size: 10)).foregroundColor(.pGold) }
+                Spacer()
+                if let f = flash {
+                    Text(f).font(Font.ns(Palette.sans(12))).foregroundColor(flashErr ? Color(red: 0.95, green: 0.55, blue: 0.47) : Color(red: 0.47, green: 0.86, blue: 0.59)).lineLimit(1)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { if hub.groups.count > 1 { gi = (gi + 1) % hub.groups.count } }
+            HStack(spacing: 4) {
+                ForEach(Array(members.prefix(8))) { m in
+                    AvatarView(userId: m.userId, nick: m.nick, avatar: m.avatar, size: 26)
+                        .opacity(m.online ? 1 : 0.45)
+                        .overlay(alignment: .bottomTrailing) {
+                            Circle().fill(m.online ? Color.green : Color.gray).frame(width: 8, height: 8)
+                        }
+                }
+            }
+            ForEach(Array(g.messages.suffix(3))) { m in
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(m.nick).font(Font.ns(Palette.sans(11))).foregroundColor(Color.pGold.opacity(0.85)).lineLimit(1)
+                    Text(m.display).font(Font.ns(Palette.sans(13))).foregroundColor(.pIvory).lineLimit(2)
+                }
+            }
+            Button(action: { send("together") }) {
+                Text(ChatT.T("callPrayer")).font(Font.ns(Palette.sans(14, weight: .bold))).foregroundColor(.pEmeraldDark)
+                    .frame(maxWidth: .infinity).padding(.vertical, 11)
+                    .background(Capsule().fill(Color.pGold.opacity(hub.connected ? 1 : 0.45)))
+            }.buttonStyle(.plain)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 6)], alignment: .leading, spacing: 6) {
+                ForEach(ChatT.presetIds.filter { $0 != "together" }, id: \.self) { id in
+                    Button(action: { send(id) }) {
+                        Text(ChatT.preset(id, id)).font(Font.ns(Palette.sans(12, weight: .medium))).foregroundColor(.pIvory)
+                            .lineLimit(1).padding(.horizontal, 10).padding(.vertical, 6).frame(maxWidth: .infinity)
+                            .overlay(Capsule().stroke(Color.pGold.opacity(hub.connected ? 0.75 : 0.35), lineWidth: 1))
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 320)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.02, green: 0.10, blue: 0.08).opacity(0.88)))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.pGold.opacity(0.65), lineWidth: 1))
     }
 }

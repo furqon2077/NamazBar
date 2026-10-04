@@ -678,6 +678,7 @@ namespace NamazBar
             { "quick",    new[] { "Tezkor xabarlar", "Тезкор хабарлар", "Быстрые сообщения", "Quick messages" } },
             { "noGroupHint", new[] { "Kodni do'stlaringizga yuboring: ular qo'shilishni so'raydi, siz tasdiqlaysiz.", "Кодни дўстларингизга юборинг: улар қўшилишни сўрайди, сиз тасдиқлайсиз.", "Отправьте код друзьям: они попросятся в группу, а вы подтвердите.", "Share the code with friends: they ask to join and you approve." } },
             { "settings", new[] { "Sozlamalar", "Созламалар", "Настройки", "Settings" } },
+            { "callPrayer", new[] { "Namozga chaqirish", "Намозга чақириш", "Позвать на намаз", "Call to prayer" } },
             { "chatCleared", new[] { "Chat tozalandi", "Чат тозаланди", "Чат очищен", "Chat cleared" } },
             { "copied",   new[] { "Kod nusxalandi", "Код нусхаланди", "Код скопирован", "Code copied" } },
             { "today",    new[] { "Bugun", "Бугун", "Сегодня", "Today" } },

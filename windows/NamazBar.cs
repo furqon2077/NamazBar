@@ -1585,13 +1585,18 @@ namespace NamazBar
                 g.DrawString(Words.T("hadith"), fText, light, new RectangleF(x, y, w, hH), c); y += hH + S(4);
                 g.DrawString(Words.T("hadRef"), fSmall, dim, new RectangleF(x, y, w, hRef), c);
             }
-            // последнее сообщение из группового чата — видно и на заблокированном экране
-            string chatLine = Chat.RecentLine();
-            if (chatLine != null)
+            // групповой чат прямо на экране перерыва: справа вверху, где виднее всего — позвать на намаз одним нажатием
+            chatHits.Clear();
+            if (Chat.Configured && Chat.Groups.Count > 0) DrawChatCard(g, r, (int)((r.Width - hs0.Width) / 2) - S(44));   // справа от заголовка, не наезжая на него
+            else
             {
-                float cw = Math.Min(r.Width - S(80), S(900));
-                using (SolidBrush cb = new SolidBrush(Color.FromArgb(235, Palette.Gold)))
-                    g.DrawString(chatLine, fSmall, cb, new RectangleF((r.Width - cw) / 2, r.Height - S(150), cw, S(40)), c);
+                string chatLine = Chat.RecentLine();
+                if (chatLine != null)
+                {
+                    float cw = Math.Min(r.Width - S(80), S(900));
+                    using (SolidBrush cb = new SolidBrush(Color.FromArgb(235, Palette.Gold)))
+                        g.DrawString(chatLine, fSmall, cb, new RectangleF((r.Width - cw) / 2, r.Height - S(150), cw, S(40)), c);
+                }
             }
             // кнопка «удерживайте, чтобы выйти» (на экстренный случай)
             string hs = Words.T("holdSkip");
@@ -1611,7 +1616,145 @@ namespace NamazBar
                 g.DrawString(hs, fSmall, dim, holdBtn.X + (holdBtn.Width - bs.Width) / 2, holdBtn.Y + (holdBtn.Height - bs.Height) / 2);
         }
 
-        protected override void OnMouseDown(MouseEventArgs e) { if (holdBtn.Contains(e.Location)) holdStart = DateTime.Now; base.OnMouseDown(e); }
+
+        // ── Чат на экране перерыва ──
+        readonly List<KeyValuePair<Rectangle, string>> chatHits = new List<KeyValuePair<Rectangle, string>>();
+        static int chatGi;
+        string chatFlash; DateTime chatFlashAt = DateTime.MinValue; bool chatFlashErr;
+
+        void DrawChatCard(Graphics g, Rectangle r, int maxW)
+        {
+            if (chatGi >= Chat.Groups.Count) chatGi = 0;
+            ChatGroup grp = Chat.Groups[chatGi];
+            int W = Math.Max(S(250), Math.Min(S(350), maxW)), pad = S(14), x0 = r.Width - W - S(28), y0 = S(28);
+            using (Font fh = Fonts.Get("NB Sans Bold", 11f, "Segoe UI", FontStyle.Bold))
+            using (Font fm = Fonts.Get("NB Sans", 10f, "Segoe UI", FontStyle.Regular))
+            using (Font fc = Fonts.Get("NB Sans Medium", 9.5f, "Segoe UI Semibold", FontStyle.Regular))
+            using (Font fb = Fonts.Get("NB Sans Bold", 12f, "Segoe UI", FontStyle.Bold))
+            using (StringFormat nf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+            {
+                // кнопки быстрых фраз (кроме «позвать» — у неё своя большая кнопка): считаем раскладку заранее, чтобы знать высоту карточки
+                List<string> ids = new List<string>();
+                foreach (string id in ChatT.PresetIds) if (id != "together") ids.Add(id);
+                List<Rectangle> chips = new List<Rectangle>();
+                int cx = 0, cy = 0, chipH = S(28), gap = S(6), inner = W - 2 * pad;
+                foreach (string id in ids)
+                {
+                    int cw = (int)Math.Ceiling(g.MeasureString(ChatT.Preset(id, id), fc).Width) + S(22);
+                    cw = Math.Min(cw, inner);
+                    if (cx + cw > inner && cx > 0) { cx = 0; cy += chipH + gap; }
+                    chips.Add(new Rectangle(cx, cy, cw, chipH)); cx += cw + gap;
+                }
+                int chipsH = cy + chipH;
+
+                List<ChatMsg> msgs = new List<ChatMsg>();
+                for (int i = Math.Max(0, grp.Messages.Count - 3); i < grp.Messages.Count; i++) msgs.Add(grp.Messages[i]);
+                int lineH = S(40), msgsH = msgs.Count * lineH;
+                int H = pad + S(22) + S(8) + S(28) + S(10) + (msgsH > 0 ? msgsH + S(10) : 0) + S(46) + S(10) + chipsH + pad;
+                Rectangle card = new Rectangle(x0, y0, W, H);
+
+                using (GraphicsPath p = Layered.Round(card, S(16)))
+                {
+                    using (SolidBrush b = new SolidBrush(Color.FromArgb(225, 5, 26, 21))) g.FillPath(b, p);
+                    using (Pen pen = new Pen(Color.FromArgb(170, Palette.Gold), Math.Max(1f, S(1.2f)))) g.DrawPath(pen, p);
+                }
+                float y = y0 + pad;
+                // заголовок: группа · сколько онлайн (если групп несколько — нажать, чтобы переключить)
+                string title = grp.Name + "  \u00B7  " + grp.OnlineCount + "/" + grp.Members.Count + (Chat.Groups.Count > 1 ? "  \u25BE" : "");
+                Rectangle hr = new Rectangle(x0 + pad, (int)y, inner, S(22));
+                using (SolidBrush gold = new SolidBrush(Palette.Gold)) g.DrawString(title, fh, gold, new RectangleF(hr.X, hr.Y, inner * 0.7f, hr.Height), nf);
+                if (Chat.Groups.Count > 1) chatHits.Add(new KeyValuePair<Rectangle, string>(hr, "group"));
+                if (chatFlash != null && (DateTime.Now - chatFlashAt).TotalSeconds < 2.5)
+                    using (SolidBrush fb2 = new SolidBrush(chatFlashErr ? Color.FromArgb(240, 140, 120) : Color.FromArgb(120, 220, 150)))
+                    using (StringFormat rf = new StringFormat { Alignment = StringAlignment.Far, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+                        g.DrawString(chatFlash, fm, fb2, new RectangleF(hr.X + inner * 0.55f, hr.Y + S(2), inner * 0.45f, hr.Height), rf);
+                y += S(22) + S(8);
+                // участники: онлайн первыми, офлайн приглушены
+                List<ChatMember> ms = new List<ChatMember>(grp.Members);
+                ms.Sort(delegate(ChatMember a, ChatMember b) { return a.Online == b.Online ? 0 : (a.Online ? -1 : 1); });
+                int av = S(26), step = S(30);
+                for (int i = 0; i < ms.Count && (i + 1) * step <= inner; i++)
+                {
+                    Rectangle ar = new Rectangle(x0 + pad + i * step, (int)y, av, av);
+                    Avatars.Draw(g, ar, ms[i].UserId, ms[i].Nick, ms[i].Avatar);
+                    if (!ms[i].Online) using (SolidBrush dim = new SolidBrush(Color.FromArgb(130, 5, 26, 21))) g.FillEllipse(dim, ar);
+                    int d = S(8);
+                    using (SolidBrush db = new SolidBrush(ms[i].Online ? Color.FromArgb(70, 200, 120) : Color.FromArgb(120, 124, 130)))
+                    using (Pen ring = new Pen(Color.FromArgb(5, 26, 21), Math.Max(1f, S(1.5f))))
+                    { g.FillEllipse(db, ar.Right - d, ar.Bottom - d, d, d); g.DrawEllipse(ring, ar.Right - d, ar.Bottom - d, d, d); }
+                }
+                y += S(28) + S(10);
+                // последние сообщения
+                if (msgsH > 0)
+                {
+                    using (SolidBrush nick = new SolidBrush(Color.FromArgb(210, Palette.Gold)))
+                    using (SolidBrush txt = new SolidBrush(Palette.Ivory))
+                        foreach (ChatMsg m in msgs)
+                        {
+                            // ник — отдельной строкой, под ним фраза целиком (в узкой карточке длинная фраза иначе обрезается)
+                            g.DrawString(m.Nick ?? "?", fc, nick, new RectangleF(x0 + pad, y, inner, S(16)), nf);
+                            g.DrawString(m.Display, fm, txt, new RectangleF(x0 + pad, y + S(15), inner, S(22)), nf);
+                            y += lineH;
+                        }
+                    y += S(10);
+                }
+                // «Позвать на намаз» — главная кнопка
+                Rectangle call = new Rectangle(x0 + pad, (int)y, inner, S(46));
+                int alpha = Chat.Connected ? 255 : 120;
+                using (GraphicsPath p = Layered.Round(call, S(23)))
+                {
+                    using (SolidBrush b = new SolidBrush(Color.FromArgb(alpha, Palette.Gold))) g.FillPath(b, p);
+                }
+                using (SolidBrush tb = new SolidBrush(Palette.EmeraldDark))
+                using (StringFormat cf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+                    g.DrawString(ChatT.T("callPrayer"), fb, tb, call, cf);
+                chatHits.Add(new KeyValuePair<Rectangle, string>(call, "preset:together"));
+                y += S(46) + S(10);
+                // остальные быстрые фразы
+                for (int i = 0; i < ids.Count; i++)
+                {
+                    Rectangle cr = new Rectangle(x0 + pad + chips[i].X, (int)y + chips[i].Y, chips[i].Width, chips[i].Height);
+                    using (GraphicsPath p = Layered.Round(cr, cr.Height / 2))
+                    using (Pen pen = new Pen(Color.FromArgb(Chat.Connected ? 190 : 90, Palette.Gold), Math.Max(1f, S(1.1f))))
+                        g.DrawPath(pen, p);
+                    using (SolidBrush tb = new SolidBrush(Color.FromArgb(Chat.Connected ? 255 : 140, Palette.Ivory)))
+                    using (StringFormat cf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+                        g.DrawString(ChatT.Preset(ids[i], ids[i]), fc, tb, cr, cf);
+                    chatHits.Add(new KeyValuePair<Rectangle, string>(cr, "preset:" + ids[i]));
+                }
+            }
+        }
+
+        bool ChatClick(Point pt)
+        {
+            foreach (KeyValuePair<Rectangle, string> h in chatHits)
+            {
+                if (!h.Key.Contains(pt)) continue;
+                if (h.Value == "group") { chatGi = (chatGi + 1) % Math.Max(1, Chat.Groups.Count); return true; }
+                if (h.Value.StartsWith("preset:") && chatGi < Chat.Groups.Count)
+                {
+                    chatFlashAt = DateTime.Now;
+                    if (!Chat.Connected) { chatFlash = ChatT.T("notConn"); chatFlashErr = true; }
+                    else { Chat.SendPreset(Chat.Groups[chatGi].Code, h.Value.Substring(7)); chatFlash = "\u2713"; chatFlashErr = false; }
+                }
+                return true;
+            }
+            return false;
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && ChatClick(e.Location)) { base.OnMouseDown(e); return; }
+            if (holdBtn.Contains(e.Location)) holdStart = DateTime.Now;
+            base.OnMouseDown(e);
+        }
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            bool over = false;
+            foreach (KeyValuePair<Rectangle, string> h in chatHits) if (h.Key.Contains(e.Location)) { over = true; break; }
+            Cursor = over || holdBtn.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
+            base.OnMouseMove(e);
+        }
         protected override void OnMouseUp(MouseEventArgs e) { holdStart = DateTime.MinValue; base.OnMouseUp(e); }
         protected override void OnKeyDown(KeyEventArgs e) { if (e.KeyCode == Keys.Escape && holdStart == DateTime.MinValue) holdStart = DateTime.Now; e.Handled = true; base.OnKeyDown(e); }
         protected override void OnKeyUp(KeyEventArgs e) { if (e.KeyCode == Keys.Escape) holdStart = DateTime.MinValue; base.OnKeyUp(e); }
