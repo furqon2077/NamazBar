@@ -11,7 +11,7 @@ if (!secret) {
   secret = crypto.randomBytes(32).toString('hex');
   console.warn('TOKEN_SECRET not set: using a random one, memberships will not survive a restart.');
 }
-const hub = new Hub({ secret, allowText: process.env.ALLOW_TEXT === '1' });
+const hub = new Hub({ secret });
 
 const server = http.createServer((req, res) => {
   if (req.url === '/healthz') { res.writeHead(200, { 'content-type': 'text/plain' }); return res.end('ok'); }

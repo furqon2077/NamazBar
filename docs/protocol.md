@@ -11,7 +11,8 @@ Transport: WebSocket, path `/ws`, one JSON object per text frame. Both clients (
 1. Connect, send `hello`; receive `welcome` (your groups, presets).
 2. **Create** a group (`createGroup`) → share its 6-char `code` out of band, or
 3. **Join**: `joinRequest{code}` → every online member gets `joinRequest`; any one of them answers `decide{requestId, approve}`; the requester gets `joined` (with token) or `joinDenied`. Requests expire after 5 min.
-4. **Chat**: `send` a preset (or text, if the server enables it). Everyone in the group receives `message`.
+4. **Chat**: `send` a preset phrase (no free text). Everyone in the group receives `message`.
+5. **History is short-lived**: 20 minutes after each prayer time the clients send `clearHistory{code, before}` and everyone drops older messages (`historyCleared`). The server also deletes anything older than 12 h by itself and keeps only the last 50 messages, in memory.
 
 ## Client → server
 | type | fields |
@@ -21,14 +22,15 @@ Transport: WebSocket, path `/ws`, one JSON object per text frame. Both clients (
 | `createGroup` | `name` |
 | `joinRequest` | `code` |
 | `decide` | `requestId, approve: bool` |
-| `send` | `code, kind: "preset", preset` or `kind: "text", text` |
+| `send` | `code, kind: "preset", preset` (ready-made phrases only — there is no free text) |
+| `clearHistory` | `code, before` (ms epoch, within the last 24 h; erases messages sent up to `before`) |
 | `leave` | `code` |
 | `ping` | — (reply `pong`; use as keep-alive, ~every 25 s) |
 
 ## Server → client
 | type | fields |
 |---|---|
-| `welcome` | `userId, presets{id:{en,ru,uz}}, allowText, groups:[Group]` |
+| `welcome` | `userId, presets{id:{en,ru,uz}}, groups:[Group]` |
 | `groupCreated` | `group, token` |
 | `joinPending` | `code, name` (to the requester) |
 | `joinRequest` | `requestId, code, from:{userId,nick,avatar}` (to members) |
@@ -37,6 +39,7 @@ Transport: WebSocket, path `/ws`, one JSON object per text frame. Both clients (
 | `joinDenied` | `code, reason` |
 | `members` | `code, members:[Member]` (online flags changed, someone joined/left) |
 | `message` | `code, id, ts, from, nick, kind, preset?, text` |
+| `historyCleared` | `code, before` (drop messages up to `before`) |
 | `left` | `code` |
 | `error` | `code, message` |
 | `pong` | — |
@@ -46,7 +49,7 @@ Transport: WebSocket, path `/ws`, one JSON object per text frame. Both clients (
 Preset ids: `together, coming, wait, where, ready, done`. Clients show their own localized text by id; `message.text` is the English fallback.
 
 ## Error codes
-`bad_request, no_hello, unknown_type, bad_user, bad_nick, bad_avatar, bad_name, no_group, already_member, group_full, too_many_groups, nobody_online, already_pending, busy, no_request, forbidden, bad_preset, bad_kind, bad_text, text_disabled, rate_limited, internal`.
+`bad_request, no_hello, unknown_type, bad_user, bad_nick, bad_avatar, bad_name, no_group, already_member, group_full, too_many_groups, nobody_online, already_pending, busy, no_request, forbidden, bad_preset, bad_kind, bad_time, rate_limited, internal`.
 
 ## Client behaviour
 - Reconnect with exponential backoff (1 s → 30 s cap); free hosts sleep when idle and need up to ~60 s to wake. Re-send `hello` with saved groups after every reconnect.

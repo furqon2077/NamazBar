@@ -54,6 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         ChatHooks.install()
+        ChatHub.shared.prayerStarts = { [weak self] in   // чат стирает историю через 20 минут после каждого намаза (кроме восхода)
+            guard let self = self, self.today.count == 6, self.yesterday.count == 6 else { return [] }
+            return [0, 2, 3, 4, 5].flatMap { [self.yesterday[$0], self.today[$0]] }
+        }
         recalc()
         tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.onTick() }
         if Store.get("autostartSet", "") == "" { setAutostart(true); Store.set("autostartSet", "1") }
@@ -134,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func onTick() {
         recalc()
+        ChatHub.shared.pruneTick()
         if let b = breakLater, Date() >= b.0 { breakLater = nil; BreakScreen.show(prayer: b.1, time: b.2, minutes: b.3) }
     }
 

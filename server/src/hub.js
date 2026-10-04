@@ -7,10 +7,11 @@ const LIMITS = {
   nick: 24,
   groupName: 40,
   avatarBytes: 32 * 1024,   // data URL length cap (clients send ~96x96)
-  text: 500,
   members: 50,
   groupsPerUser: 10,
   history: 50,
+  historyTtlMs: 12 * 60 * 60 * 1000,   // страховка: сообщения старше 12 часов удаляются сами
+  clearBackMs: 24 * 60 * 60 * 1000,    // clearHistory принимает границу не старше суток
   pendingPerGroup: 20,
   pendingTtlMs: 5 * 60 * 1000,
   rate: { count: 12, perMs: 10 * 1000 },
@@ -29,13 +30,11 @@ class Hub {
   /**
    * @param {object} opts
    * @param {string} opts.secret      HMAC key for membership tokens (stateless restore after restart)
-   * @param {boolean} [opts.allowText] allow free text besides presets
    * @param {() => number} [opts.now]
    */
-  constructor({ secret, allowText = false, now = Date.now } = {}) {
+  constructor({ secret, now = Date.now } = {}) {
     if (!secret) throw new Error('secret required');
     this.secret = secret;
-    this.allowText = allowText;
     this.now = now;
     this.groups = new Map();   // code -> {code,name,members:Map<userId,profile>,history:[]}
     this.online = new Map();   // userId -> Set<conn>
@@ -64,7 +63,7 @@ class Hub {
       if (msg.type === 'hello') return this.hello(conn, msg);
       if (!conn.userId) throw new ProtocolError('no_hello', 'send hello first');
       const fn = { updateProfile: 'updateProfile', createGroup: 'createGroup', joinRequest: 'joinRequest',
-                   decide: 'decide', send: 'sendMessage', leave: 'leave' }[msg.type];
+                   decide: 'decide', send: 'sendMessage', leave: 'leave', clearHistory: 'clearHistory' }[msg.type];
       if (!fn) throw new ProtocolError('unknown_type', `unknown type ${clean(msg.type, 32)}`);
       this[fn](conn, msg);
     } catch (e) {
@@ -123,7 +122,7 @@ class Hub {
       restored.push(code);
     }
     for (const code of this.userGroups(p.userId)) conn.groups.add(code);
-    conn.send({ type: 'welcome', userId: p.userId, presets: PRESETS, allowText: this.allowText,
+    conn.send({ type: 'welcome', userId: p.userId, presets: PRESETS,
                 groups: [...conn.groups].map(c => this.snapshot(this.groups.get(c))) });
     for (const code of conn.groups) this.broadcastMembers(code, conn);
   }
@@ -199,18 +198,31 @@ class Hub {
     if (!group?.members.has(conn.userId)) throw new ProtocolError('forbidden', 'not a member of that group');
     const out = { type: 'message', code, id: crypto.randomBytes(6).toString('hex'), ts: this.now(),
                   from: conn.userId, nick: group.members.get(conn.userId).nick };
-    if (msg.kind === 'preset') {
-      if (!Object.hasOwn(PRESETS, msg.preset)) throw new ProtocolError('bad_preset', 'unknown preset');
-      Object.assign(out, { kind: 'preset', preset: msg.preset, text: PRESETS[msg.preset].en });
-    } else if (msg.kind === 'text') {
-      if (!this.allowText) throw new ProtocolError('text_disabled', 'free text is disabled on this server');
-      const text = clean(msg.text, LIMITS.text);
-      if (!text) throw new ProtocolError('bad_text', 'empty message');
-      Object.assign(out, { kind: 'text', text });
-    } else throw new ProtocolError('bad_kind', 'kind must be preset or text');
+    // Только готовые фразы: свободного текста в чате нет
+    if (msg.kind !== 'preset') throw new ProtocolError('bad_kind', 'only preset messages are allowed');
+    if (!Object.hasOwn(PRESETS, msg.preset)) throw new ProtocolError('bad_preset', 'unknown preset');
+    Object.assign(out, { kind: 'preset', preset: msg.preset, text: PRESETS[msg.preset].en });
+    this.prune(group);
     group.history.push(out);
     if (group.history.length > LIMITS.history) group.history.shift();
     this.broadcast(group, out);
+  }
+
+  // Клиенты сами знают время намаза: через 20 минут после него они просят стереть историю до этой границы
+  clearHistory(conn, msg) {
+    const code = clean(msg.code, 12).toUpperCase();
+    const group = this.groups.get(code);
+    if (!group?.members.has(conn.userId)) throw new ProtocolError('forbidden', 'not a member of that group');
+    const t = this.now();
+    const before = Number(msg.before);
+    if (!Number.isFinite(before) || before > t || before < t - LIMITS.clearBackMs) throw new ProtocolError('bad_time', 'before must be within the last 24 hours');
+    group.history = group.history.filter(m => m.ts > before);
+    this.broadcast(group, { type: 'historyCleared', code, before });
+  }
+
+  prune(group) {
+    const min = this.now() - LIMITS.historyTtlMs;
+    group.history = group.history.filter(m => m.ts > min);
   }
 
   leave(conn, msg) {
@@ -239,6 +251,7 @@ class Hub {
   }
   public(p) { return { userId: p.userId, nick: p.nick, avatar: p.avatar }; }
   snapshot(g) {
+    this.prune(g);
     return { code: g.code, name: g.name, members: this.memberList(g), history: g.history };
   }
   memberList(g) {
