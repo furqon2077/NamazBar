@@ -941,60 +941,9 @@ namespace NamazBar
 
     // ───────────────────────── Чат прямо в меню ─────────────────────────
     // Строка меню: заголовок группы или участник (круглый аватар, ник, справа точка: зелёная — онлайн, серая — нет)
-    class ChatRowItem : ToolStripMenuItem
-    {
-        static Font fHead, fNick;
-        readonly ChatMember member;
-        readonly string head;
-        readonly float k;
-
-        public ChatRowItem(ChatMember m, string head, float k)
-        {
-            this.member = m; this.head = head; this.k = k;
-            AutoSize = true; Padding = Padding.Empty;
-            Size = new Size((int)(270 * k), (int)((head != null ? 30 : 34) * k));
-            if (fHead == null) fHead = Fonts.Get("NB Sans Bold", 9.5f, "Segoe UI", FontStyle.Bold);
-            if (fNick == null) fNick = Fonts.Get("NB Sans", 10.5f, "Segoe UI", FontStyle.Regular);
-        }
-
-        // Ширина по тексту (длинный ник или название группы расширяет меню), но не больше 380 px: дальше — многоточие
-        public override Size GetPreferredSize(Size constrainingSize)
-        {
-            TextFormatFlags mf = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
-            int textW, extra;
-            if (head != null) { textW = TextRenderer.MeasureText(head, fHead, new Size(3000, 100), mf).Width; extra = (int)(28 * k); }
-            else { textW = TextRenderer.MeasureText(member.Nick ?? "", fNick, new Size(3000, 100), mf).Width; extra = (int)((14 + 24 + 10 + 18 + 10 + 14) * k); }
-            int w = Math.Max((int)(270 * k), Math.Min(textW + extra, (int)(380 * k)));
-            return new Size(w, Size.Height);
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            Graphics g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            TextFormatFlags tf = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
-            if (head != null)
-            {
-                TextRenderer.DrawText(g, head, fHead, new Rectangle((int)(14 * k), 0, Width - (int)(28 * k), Height), Palette.Gold, tf);
-                using (Pen p = new Pen(Color.FromArgb(70, Palette.Gold))) g.DrawLine(p, (int)(14 * k), Height - 1, Width - (int)(14 * k), Height - 1);
-                return;
-            }
-            int av = (int)(24 * k);
-            Rectangle ar = new Rectangle((int)(14 * k), (Height - av) / 2, av, av);
-            Avatars.Draw(g, ar, member.UserId, member.Nick, member.Avatar);
-            if (!member.Online) using (SolidBrush dim = new SolidBrush(Color.FromArgb(120, MenuUi.Surface))) g.FillEllipse(dim, ar);
-            int dot = (int)(10 * k);
-            Rectangle dr = new Rectangle(Width - (int)(24 * k), (Height - dot) / 2, dot, dot);
-            using (SolidBrush b = new SolidBrush(member.Online ? Color.FromArgb(70, 200, 120) : Color.FromArgb(120, 124, 130))) g.FillEllipse(b, dr);
-            Color fg = member.Online ? Palette.Ivory : Color.FromArgb(150, Palette.Ivory);
-            TextRenderer.DrawText(g, member.Nick, fNick, new Rectangle(ar.Right + (int)(10 * k), 0, dr.X - ar.Right - (int)(18 * k), Height), fg, tf);
-        }
-    }
-
     static class ChatMenu
     {
-        static float Dpi() { using (Bitmap b = new Bitmap(1, 1)) using (Graphics g = Graphics.FromImage(b)) return g.DpiX / 96f; }
+        static Font MenuFont { get { return Fonts.Get("NB Sans", 10.5f, "Segoe UI", FontStyle.Regular); } }
 
         public static void ShowWindow() { ChatDock.ShowDock(); }
 
@@ -1002,9 +951,8 @@ namespace NamazBar
         public static void Rebuild(ToolStripMenuItem root)
         {
             ToolStripDropDownMenu dd = root.DropDown as ToolStripDropDownMenu;
-            if (dd != null) { dd.ShowImageMargin = false; dd.ShowCheckMargin = false; }
+            if (dd != null) { dd.ShowImageMargin = true; dd.ShowCheckMargin = false; }   // поле значков нужно для аватаров участников
             root.DropDownItems.Clear();
-            float k = Dpi();
 
             if (!Chat.Configured)
             {
@@ -1020,14 +968,14 @@ namespace NamazBar
             foreach (ChatGroup g in Chat.Groups)
             {
                 string title = g.Name + "  ·  " + g.OnlineCount + "/" + g.Members.Count;
-                root.DropDownItems.Add(new ChatRowItem(null, title, k));
+                root.DropDownItems.Add(MenuUi.Head(MenuUi.Fit(title, MenuFont, MenuUi.MaxTextW)));
                 List<ChatMember> sorted = new List<ChatMember>(g.Members);
                 sorted.Sort(delegate(ChatMember a, ChatMember b)
                 {
                     if (a.Online != b.Online) return a.Online ? -1 : 1;
                     return string.Compare(a.Nick, b.Nick, StringComparison.CurrentCultureIgnoreCase);
                 });
-                foreach (ChatMember m in sorted) root.DropDownItems.Add(new ChatRowItem(m, null, k));
+                foreach (ChatMember m in sorted) root.DropDownItems.Add(MenuUi.Person(m.Nick ?? "", m));
             }
             if (Chat.Groups.Count > 0) root.DropDownItems.Add(new ToolStripSeparator());
 
@@ -1036,7 +984,7 @@ namespace NamazBar
                 foreach (ChatGroup g in Chat.Groups)
                 {
                     ChatGroup grp = g;
-                    ToolStripMenuItem send = MenuUi.Sub(Chat.Groups.Count > 1 ? ChatT.T("send") + " → " + g.Name : ChatT.T("send"), null);
+                    ToolStripMenuItem send = MenuUi.Sub(Chat.Groups.Count > 1 ? MenuUi.Fit(ChatT.T("send") + " → " + g.Name, MenuFont, MenuUi.MaxTextW) : ChatT.T("send"), null);
                     foreach (string id in ChatT.PresetIds)
                     {
                         string pid = id;

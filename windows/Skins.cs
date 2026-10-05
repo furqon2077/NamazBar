@@ -124,14 +124,48 @@ namespace NamazBar
             m.Font = Fonts.Get("NB Sans", 10.5f, "Segoe UI", FontStyle.Regular);
             m.ShowImageMargin = true; m.ShowCheckMargin = false;
             m.ImageScalingSize = new Size((int)(20 * k), (int)(20 * k));
-            m.Padding = new Padding((int)(4 * k));
+            m.Padding = new Padding((int)(6 * k), (int)(8 * k), (int)(6 * k), (int)(8 * k));
+        }
+
+        // Подрезает текст многоточием, чтобы длинное имя не растягивало меню и не обрезалось по краю
+        public static string Fit(string text, Font f, int maxPx)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            TextFormatFlags fl = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+            if (TextRenderer.MeasureText(text, f, new Size(5000, 100), fl).Width <= maxPx) return text;
+            int n = text.Length;
+            while (n > 1 && TextRenderer.MeasureText(text.Substring(0, n).TrimEnd() + "\u2026", f, new Size(5000, 100), fl).Width > maxPx) n--;
+            return text.Substring(0, n).TrimEnd() + "\u2026";
+        }
+        public static int MaxTextW { get { return (int)(300 * Dpi()); } }
+
+        // Заголовок группы в меню чата: акцентный цвет, без выделения при наведении
+        public static ToolStripMenuItem Head(string text) { ToolStripMenuItem it = Make(text, null); it.Tag = "head"; return it; }
+        // Участник группы: аватар с точкой «в сети»; не в сети — приглушён
+        public static ToolStripMenuItem Person(string nick, ChatMember m)
+        {
+            float k = Dpi(); int px = (int)(24 * k);
+            ToolStripMenuItem it = Make(Fit(nick, Fonts.Get("NB Sans", 10.5f, "Segoe UI", FontStyle.Regular), MaxTextW), null);
+            Bitmap b = new Bitmap(px, px);
+            using (Graphics g = Graphics.FromImage(b))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                Avatars.Draw(g, new Rectangle(0, 0, px, px), m.UserId, m.Nick, m.Avatar);
+                if (!m.Online) using (SolidBrush dim = new SolidBrush(Color.FromArgb(130, Surface))) g.FillEllipse(dim, 0, 0, px, px);
+                int d = (int)(9 * k);
+                using (SolidBrush ring = new SolidBrush(Surface)) g.FillEllipse(ring, px - d - 1, px - d - 1, d + 2, d + 2);
+                using (SolidBrush dot = new SolidBrush(m.Online ? Ui.Online : Ui.Offline)) g.FillEllipse(dot, px - d, px - d, d, d);
+            }
+            it.Image = b; it.ImageScaling = ToolStripItemImageScaling.None;
+            if (!m.Online) it.Tag = "off";
+            return it;
         }
 
         static ToolStripMenuItem Make(string text, string glyph)
         {
             ToolStripMenuItem it = new ToolStripMenuItem(text);
-            it.Padding = new Padding(2, 5, 2, 5);
-            if (glyph != null && HasIcons) it.Image = Glyph(glyph, Palette.Gold, (int)(20 * Dpi()));
+            it.Padding = new Padding(2, 6, 2, 6);
+            if (glyph != null && HasIcons) it.Image = Glyph(glyph, Ui.Dim, (int)(20 * Dpi()));
             return it;
         }
         public static ToolStripMenuItem Sub(string text, string glyph) { return Make(text, glyph); }
@@ -151,8 +185,8 @@ namespace NamazBar
             return it;
         }
 
-        public static Color Surface { get { return View.Mix(Palette.EmeraldDark, Color.Black, 0.35); } }
-        public static Color Hover { get { return View.Mix(Palette.Emerald, Palette.Gold, 0.12); } }
+        public static Color Surface { get { return Ui.Panel; } }   // тот же нейтральный фон, что у окна чата
+        public static Color Hover { get { return View.Mix(Ui.Panel, Ui.Text, 0.10); } }
 
         class SkinColors : ProfessionalColorTable
         {
@@ -160,7 +194,7 @@ namespace NamazBar
             public override Color ImageMarginGradientBegin { get { return MenuUi.Surface; } }
             public override Color ImageMarginGradientMiddle { get { return MenuUi.Surface; } }
             public override Color ImageMarginGradientEnd { get { return MenuUi.Surface; } }
-            public override Color MenuBorder { get { return Color.FromArgb(120, Palette.Gold); } }
+            public override Color MenuBorder { get { return MenuUi.Surface; } }
         }
 
         class SkinRenderer : ToolStripProfessionalRenderer
@@ -169,36 +203,40 @@ namespace NamazBar
 
             protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
             {
+                // выпадающее окно со скруглёнными углами (без рамки)
+                ToolStripDropDown dd = e.ToolStrip as ToolStripDropDown;
+                if (dd != null && dd.Width > 0 && dd.Height > 0 && (dd.Region == null || dd.Tag as string != dd.Width + "x" + dd.Height))
+                {
+                    try { using (GraphicsPath rp = Layered.Round(new Rectangle(0, 0, dd.Width, dd.Height), 8)) dd.Region = new System.Drawing.Region(rp); dd.Tag = dd.Width + "x" + dd.Height; } catch { }
+                }
                 using (SolidBrush b = new SolidBrush(MenuUi.Surface)) e.Graphics.FillRectangle(b, e.AffectedBounds);
             }
             protected override void OnRenderImageMargin(ToolStripRenderEventArgs e) { }
-            protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
-            {
-                using (Pen p = new Pen(Color.FromArgb(150, Palette.Gold)))
-                    e.Graphics.DrawRectangle(p, 0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
-            }
+            protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e) { }   // без рамки
             protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
             {
-                if (!e.Item.Selected || !e.Item.Enabled) return;
+                if (!e.Item.Selected || !e.Item.Enabled || e.Item.Tag as string == "head") return;
                 Graphics g = e.Graphics;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                Rectangle r = new Rectangle(3, 1, e.Item.Width - 7, e.Item.Height - 3);
-                using (GraphicsPath p = Layered.Round(r, 6))
+                Rectangle r = new Rectangle(4, 1, e.Item.Width - 8, e.Item.Height - 2);
+                using (GraphicsPath p = Layered.Round(r, 8))
                 using (SolidBrush b = new SolidBrush(MenuUi.Hover)) g.FillPath(b, p);
             }
             protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
             {
                 int y = e.Item.Height / 2;
-                using (Pen p = new Pen(Color.FromArgb(70, Palette.Gold))) e.Graphics.DrawLine(p, 14, y, e.Item.Width - 14, y);
+                using (Pen p = new Pen(Ui.Border)) e.Graphics.DrawLine(p, 12, y, e.Item.Width - 12, y);
             }
             protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
             {
-                e.TextColor = e.Item.Enabled ? Palette.Ivory : Color.FromArgb(120, Palette.Ivory);
+                string tag = e.Item.Tag as string;
+                e.TextColor = !e.Item.Enabled || tag == "off" ? Ui.Dim : tag == "head" ? Ui.Accent : Ui.Text;
+                if (tag == "head") e.TextFont = Ui.Medium;
                 base.OnRenderItemText(e);
             }
             protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
             {
-                e.ArrowColor = Palette.Gold;
+                e.ArrowColor = Ui.Dim;
                 base.OnRenderArrow(e);
             }
             // галочка выбранного пункта — золотая «птичка» поверх значка/образца (в уголке)
@@ -210,8 +248,8 @@ namespace NamazBar
                 int s = Math.Max(8, r.Height * 2 / 3);
                 Rectangle box = e.Item.Image == null ? new Rectangle(r.X + (r.Width - s) / 2, r.Y + (r.Height - s) / 2, s, s)
                                                      : new Rectangle(r.Right - s + 2, r.Bottom - s + 2, s, s);
-                using (SolidBrush b = new SolidBrush(Palette.Gold)) g.FillEllipse(b, box);
-                using (Pen p = new Pen(Palette.EmeraldDark, Math.Max(1.4f, s / 6f)))
+                using (SolidBrush b = new SolidBrush(Ui.Accent)) g.FillEllipse(b, box);
+                using (Pen p = new Pen(Ui.OnAccent, Math.Max(1.4f, s / 6f)))
                 {
                     p.StartCap = LineCap.Round; p.EndCap = LineCap.Round;
                     g.DrawLines(p, new PointF[] {
